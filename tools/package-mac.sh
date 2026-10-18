@@ -122,7 +122,11 @@ VERSION="$(node -p "require('$LOADER/package.json').version")"
 ZIP="$DIST/D9010-VmApp-Launcher-$VERSION-mac-arm64.zip"
 step "zip"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+# --norsrc --noextattr: no "._" entries. macOS 15 puts com.apple.provenance on every file; ditto would store each as an AppleDouble "._" entry, and
+# an extractor that cannot apply them to the frameworks' symlinks (Archive Utility on a downloaded zip) writes them out as real files, which
+# breaks the framework's seal ("unsealed contents present in the root directory of an embedded framework"). The notarization ticket is a file
+# (Contents/CodeResources), not an attribute, so nothing is lost.
+ditto -c -k --norsrc --noextattr --keepParent "$APP" "$ZIP"
 
 # 7. summary
 step "summary"

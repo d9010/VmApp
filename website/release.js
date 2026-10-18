@@ -195,7 +195,12 @@ async function sha256File(file) {
 async function verifyZip(zip, version) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vmapp-release-check-'));
   try {
-    await must('ditto', ['-x', '-k', zip, dir], 'unzipping the build');
+    // No "._" (AppleDouble) entries: an extractor that cannot apply them to the frameworks' symlinks writes them out as real files, which
+    // breaks the seal and macOS says "could not verify ... free of malware". And unpack with plain `unzip`, the least forgiving extractor.
+    const listing = await must('unzip', ['-Z1', zip], 'listing the zip');
+    const stray = listing.split('\n').filter((n) => /(^|\/)\._/.test(n));
+    if (stray.length) fail(`${path.basename(zip)} contains ${stray.length} "._" entries (extended attributes stored as files), for example ${stray[0]}. Zip with: ditto -c -k --norsrc --noextattr --keepParent (tools/package-mac.sh and tools/notarize-mac do).`);
+    await must('unzip', ['-q', zip, '-d', dir], 'unzipping the build');
     const app = path.join(dir, 'D9010VmAppLauncher.app');
     if (!fs.existsSync(app)) fail(`${path.basename(zip)} does not contain D9010VmAppLauncher.app.`);
     const plist = path.join(app, 'Contents', 'Info.plist');

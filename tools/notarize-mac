@@ -47,6 +47,8 @@ echo "== what Gatekeeper says"
 spctl --assess --type execute -vv "$APP"
 echo "== re-creating the zip with the stapled app"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+# no extended attributes in the zip (see tools/package-mac.sh): "._" entries break the frameworks' seal when a downloaded zip is opened
+ditto -c -k --norsrc --noextattr --keepParent "$APP" "$ZIP"
 unzip -tq "$ZIP" | tail -1
+if unzip -l "$ZIP" | grep -q '/\._'; then echo "notarize-mac: the zip contains ._ entries (AppleDouble); it would not open cleanly on another Mac" >&2; exit 1; fi
 echo "done: $ZIP ($(du -h "$ZIP" | cut -f1))"
