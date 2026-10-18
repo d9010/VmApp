@@ -1,0 +1,38 @@
+[package]
+name = "vmapp-host"
+version = "0.1.0"
+edition = "2021"
+description = "D9010 VmApp host launcher: boots the app's core VM (Apple Virtualization.framework), shares folders, bridges vsock to a Unix socket."
+publish = false
+build = "build.rs"
+
+[lib]
+name = "vmapp"
+crate-type = ["rlib", "staticlib"]
+
+[[bin]]
+name = "vmapp-vm"
+path = "src/bin/vmapp-vm.rs"
+
+# The experimental libkrun launcher (SPEC 8.7). It does not link libkrun: its sandboxed VMM child dlopen()s it from
+# <krun dir>/lib at run time, so this binary builds with the normal toolchain and `tools/build.sh` ignores it.
+[[bin]]
+name = "vmapp-vm-krun"
+path = "src/bin/vmapp-vm-krun.rs"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+
+# Standalone package: not part of any parent workspace.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+# No LTO: the staticlib must contain native objects (with LTO it holds LLVM bitcode a C linker can't use).
+strip = true

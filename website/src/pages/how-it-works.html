@@ -1,0 +1,61 @@
+title: How it works
+description: A plain-language walk through D9010 VmApp: what happens when you open an app, what the app can and can't do, and who is in charge.
+---
+<p class="kicker">No technical background needed</p>
+<h1>How it works</h1>
+<p class="lead">An analogy first, then exactly what happens on your Mac when you open an app.</p>
+
+<h2>The analogy: a workshop behind glass</h2>
+<p>Imagine you hire a craftsperson you've never met. You wouldn't let them wander your house. You'd put them in a workshop with a glass wall. You can watch, you hand in exactly the materials they need, and you decide whether they get a phone line.</p>
+<ul>
+  <li><strong>The workshop</strong> is a small virtual computer made just for that app. It is called a <em>virtual machine</em>, or VM.</li>
+  <li><strong>The glass wall</strong> is the app's window: you can see and click, but nothing walks through it.</li>
+  <li><strong>You, at the door</strong>, are the launcher. It asks: <em>"This app wants to read your Notes folder. Allow?"</em></li>
+  <li><strong>The phone line</strong> is internet access. It is off until you name the websites the app may call.</li>
+</ul>
+
+<h2>What happens when you open an app</h2>
+<ol class="steps">
+  <li><strong>You click Launch.</strong>The launcher checks the app's package. Every file in it carries a fingerprint (a SHA-256 hash), and they all have to match. What you installed is what you reviewed.</li>
+  <li><strong>It asks you, if it needs to.</strong>The first time, a permission sheet lists what the app asks for: folders, the internet, and so on. Installing alone grants nothing. You can say no to any of it.</li>
+  <li><strong>A tiny VM starts for this app only.</strong>It takes about half a second. Inside is a small Linux system. The system and the programming language the app uses are read-only and shared; the app brings only its own code, often a few kilobytes.</li>
+  <li><strong>The window opens on your desktop.</strong>It is drawn natively, so it looks and feels like any other app, but it runs in a locked-down browser engine with no internet and no file access.</li>
+  <li><strong>Window and engine talk through the launcher.</strong>When you click Save, the window sends a short message. The launcher passes it into the VM, the engine does the work and answers, and the launcher passes the answer back.</li>
+  <li><strong>You close the app and the room is thrown away.</strong>Everything the app wrote to its temporary space is gone. Only the app's own data folder and the folders you granted are kept.</li>
+</ol>
+
+<h2>What an app can and can't do</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>An app can&hellip;</th><th>&hellip;but only if you allow it, and never by default</th></tr></thead>
+  <tbody>
+    <tr><td>Read or write a folder</td><td>Only folders you picked, with the access you chose (read, read and write, or write only). Other folders don't exist inside the VM.</td></tr>
+    <tr><td>Use the internet</td><td>Only the named websites you allowed. The VM has no network connection of its own, and your home network (router, printers, other computers) is always out of reach.</td></tr>
+    <tr><td>Use your screen, mouse and keyboard</td><td>Only apps built for it (like computer-use helpers), each ability granted separately.</td></tr>
+    <tr><td>Use your Mac's graphics chip</td><td>Only if the app asks, you agree, and the experimental GPU option is on.</td></tr>
+    <tr><td>Keep data between runs</td><td>Always, in one private folder of its own that no other app can see.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <p><strong>You can always look.</strong> The <em>Inspector</em> on each app shows every message between its window and its engine, and every internet connection it tries (allowed or refused), live. Taking a permission back closes the connections it was using immediately.</p>
+</div>
+
+<h2>Why a separate VM for each app?</h2>
+<p>You could put all your apps in one big virtual computer. That helps a little: the VM shields your Mac. But the apps inside would no longer be protected from <em>each other</em>, so one bad update would reach all of them, and you'd have a whole second computer to look after.</p>
+<p>One small VM per app means a problem in one app stays in that app. Because the operating system and language runtimes are shared and read-only, there's almost nothing to maintain.</p>
+
+<div class="aside">
+  <p class="label">In technical terms</p>
+  <p>The VM is created with Apple's Virtualization framework, one process per app. The window is a sandboxed Chromium renderer with no Node, no network and a single API, <code>window.vmapp</code>. Messages are JSON lines over a Unix socket bridged into the VM over vsock. File access is enforced by the hypervisor's share flags, not by the app. The VM has no network device; connections go through an allowlist proxy on the host that resolves names itself and refuses private addresses. Details: <a href="/docs/architecture">Architecture</a>.</p>
+</div>
+
+<h2>What it does not do</h2>
+<ul>
+  <li>It can't make a harmful app harmless once you've given it something. If you grant a folder <em>and</em> a website, the app can send that folder's files there. The launcher warns you about that combination in words.</li>
+  <li>It is not stronger than a web browser against attacks on the browser engine itself. The window uses the same engine.</li>
+  <li>It protects <em>you</em> from apps. It does not hide an app maker's code from you.</li>
+</ul>
+<p>The full list is on the <a href="/security">Security</a> page.</p>
+<p><a class="btn primary" href="/security">Next: security</a><a class="btn ghost" href="/docs/architecture">Go deeper: architecture</a></p>

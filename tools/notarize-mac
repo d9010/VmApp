@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Notarizes the Developer-ID-signed launcher that tools/package-mac.sh built, staples Apple's ticket to it and re-creates the zip.
+#
+#   SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" tools/package-mac.sh --with-examples ...   # build and sign for real first
+#   bash tools/notarize-mac <keychain-profile>        e.g. d9010-notarize
+#
+# The profile is stored once in your keychain, so no password is ever on a command line or in a file:
+#   xcrun notarytool store-credentials "<profile>" --apple-id "<APPLE_ID>" --team-id "<TEAMID>"      (it asks for an app-specific password)
+#
+# This UPLOADS the zip to Apple's notary service (the app leaves this Mac), waits for the verdict, and only on "Accepted" staples the ticket to
+# the .app and rebuilds the zip (the ticket is in the .app, not in the zip that was submitted). On a rejection it prints Apple's log and stops.
+# It refuses an ad hoc build up front, because Apple rejects those after the whole upload.
+set -euo pipefail
+
+VMAPP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROFILE="${1:?usage: tools/notarize-mac <keychain-profile> (see the header of this file)}"
+DIST="${VMAPP_DIST:-$VMAPP/out/dist}"
+APP="$DIST/D9010VmAppLauncher.app"
+VERSION="$(node -p "require('$VMAPP/loader/package.json').version")"
+ZIP="$DIST/D9010-VmApp-Launcher-$VERSION-mac-arm64.zip"
+die() { echo "notarize-mac: $*" >&2; exit 1; }
+
+[ -d "$APP" ] && [ -f "$ZIP" ] || die "$APP or $ZIP is missing: run tools/package-mac.sh first"
+SIGNATURE="$(codesign -dvv "$APP" 2>&1 || true)" # captured first: `grep -q` in a pipe would close it early and fail under pipefail
+case "$SIGNATURE" in
+  *"Authority=Developer ID Application"*) ;;
+  *) die "$APP is not signed with a Developer ID (it looks ad hoc): build it with SIGN_IDENTITY=\"Developer ID Application: <Name> (<TEAMID>)\" tools/package-mac.sh" ;;
+esac
+codesign --verify --deep --strict "$APP" || die "the signature of $APP does not verify"
+
+RESULT="$(mktemp)"
+trap 'rm -f "$RESULT"' EXIT
+echo "== uploading $(du -h "$ZIP" | cut -f1) to Apple's notary service and waiting for the verdict (usually a few minutes)"
+xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait --output-format json > "$RESULT" || true
+STATUS="$(node -p "try { JSON.parse(require('fs').readFileSync('$RESULT','utf8')).status } catch { 'unreadable' }")"
+ID="$(node -p "try { JSON.parse(require('fs').readFileSync('$RESULT','utf8')).id } catch { '' }")"
+echo "   verdict: $STATUS (submission $ID)"
+if [ "$STATUS" != "Accepted" ]; then
+  [ -z "$ID" ] || xcrun notarytool log "$ID" --keychain-profile "$PROFILE" || true
+  die "Apple did not accept it ($STATUS); the log is above"
+fi
+
+echo "== stapling the ticket"
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
+echo "== what Gatekeeper says"
+spctl --assess --type execute -vv "$APP"
+echo "== re-creating the zip with the stapled app"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+unzip -tq "$ZIP" | tail -1
+echo "done: $ZIP ($(du -h "$ZIP" | cut -f1))"

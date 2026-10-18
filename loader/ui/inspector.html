@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bridge Inspector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="inspector.css">
+<link rel="stylesheet" href="wrap.css">
+</head>
+<body>
+<header class="bar">
+  <label class="field">App
+    <select id="app-select"></select>
+  </label>
+  <span id="app-state" class="muted"></span>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab active" data-tab="traffic">Traffic <span class="count" id="count-traffic"></span></button>
+    <button role="tab" class="tab" data-tab="log">Core log</button>
+    <button role="tab" class="tab" data-tab="files">Delivered files <span class="count" id="count-files"></span></button>
+  </nav>
+  <span class="grow"></span>
+  <span class="muted note">read-only: shows what passes through the loader</span>
+</header>
+
+<section id="view-traffic" class="view">
+  <div class="toolbar">
+    <input id="filter" type="text" placeholder="Filter (type, channel, op, text in the preview)" autocomplete="off" spellcheck="false">
+    <button id="btn-host" data-action="filter-host" aria-pressed="false" title="Show only what the app did on your computer: screen, mouse and keyboard, tools, MCP servers">Host</button>
+    <button id="btn-net" data-action="filter-net" aria-pressed="false" title="Show only the app's network connections: host, port, allowed or denied, bytes up and down">Network</button>
+    <button id="btn-gpu" data-action="filter-gpu" aria-pressed="false" title="Show only the app's use of the GPU: the sandboxed server starting and stopping, and each connection to it with bytes up and down">GPU</button>
+    <button id="btn-pause" data-action="pause">Pause</button>
+    <button id="btn-clear" data-action="clear">Clear</button>
+    <span id="status" class="muted"></span>
+  </div>
+  <div class="split">
+    <div class="tablewrap">
+      <table id="traffic">
+        <thead>
+          <tr><th class="c-time">Time</th><th class="c-dir"></th><th class="c-type">Type</th><th class="c-chan">Channel / op</th><th class="c-win">Win</th><th class="c-bytes">Bytes</th><th class="c-dur">Duration</th><th class="c-res">Result</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <aside class="detail" id="detail">
+      <div class="muted" id="detail-empty">Select a row to see its preview.</div>
+      <div id="detail-body" hidden>
+        <dl id="detail-meta"></dl>
+        <div class="muted small">Preview: the first 200 characters of the message, never the full payload.</div>
+        <pre id="detail-pre"></pre>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="view-log" class="view" hidden>
+  <div class="two">
+    <div class="pane">
+      <h3>Events <span class="muted">(from the loader and the core)</span></h3>
+      <div id="log-events" class="logbox mono"></div>
+    </div>
+    <div class="pane">
+      <h3>Console log tail <span class="muted" id="console-path"></span></h3>
+      <pre id="console-tail" class="logbox mono"></pre>
+    </div>
+  </div>
+</section>
+
+<section id="view-files" class="view" hidden>
+  <div class="toolbar"><span class="muted">Files that the app wrote into its write-only folders, as the loader delivered them.</span></div>
+  <table id="files">
+    <thead><tr><th class="c-time">Time</th><th>Folder share</th><th>Files</th></tr></thead>
+    <tbody id="files-rows"></tbody>
+  </table>
+  <div id="files-empty" class="muted pad">Nothing delivered yet.</div>
+</section>
+
+<script src="dom.js"></script>
+<script src="inspector.js"></script>
+</body>
+</html>

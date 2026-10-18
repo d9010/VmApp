@@ -1,0 +1,9 @@
+# Spike kernel: options that must stay off (a subset of vmapp/kernel/kconfig-forbidden.txt; DRM is deliberately
+# NOT forbidden here, that is the point of the spike).
+MODULES
+VSOCKETS_LOOPBACK
+NAMESPACES
+CGROUPS
+BPF_SYSCALL
+USB_SUPPORT
+SOUND

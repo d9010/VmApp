@@ -1,0 +1,14 @@
+{
+  "name": "bookmarks",
+  "version": "1.0.0",
+  "description": "A tiny bookmarks web app: an Express server with a JSON REST API and a static front end.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "4.21.2"
+  }
+}

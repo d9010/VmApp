@@ -1,0 +1,26 @@
+From: vmapp <vmapp@example.invalid>
+Subject: [PATCH 3/4] ui: after signing out, load index.html instead of reloading the page
+
+Settings > "Disconnect" signs the Ollama account out and then calls `window.location.reload()`. In the desktop app the page is served by a
+Go server that answers every path with index.html, so a reload of "/" works. A vmapp window serves only the files of the package, and the
+page's location is "/" only because ollama-desktop-shim.js rewrote it (history.replaceState) so that the router starts on its home route;
+a reload would ask the host for "/" and get a 404. `location.assign("/index.html")` does the same thing (a fresh start of the app) and
+works in both situations: "/index.html" is a real file in the desktop app's build too.
+
+---
+ app/ui/app/src/components/Settings.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/app/ui/app/src/components/Settings.tsx b/app/ui/app/src/components/Settings.tsx
+--- a/app/ui/app/src/components/Settings.tsx
++++ b/app/ui/app/src/components/Settings.tsx
+@@ -464,7 +464,8 @@ export default function Settings() {
+     setConnectionError(null);
+     try {
+       await disconnectUser();
+-      window.location.reload();
++      // not reload(): this window shows index.html under a rewritten URL ("/"), which a reload would ask the host for
++      window.location.assign("/index.html");
+     } catch {
+       setConnectionError("Failed to disconnect Ollama account");
+     }

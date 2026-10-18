@@ -1,0 +1,11 @@
+{
+  "name": "vmapp-terminal-vendor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The terminal emulator the Terminal app's window uses, vendored into ui/vendor/ by ../build.sh.",
+  "license": "MIT",
+  "dependencies": {
+    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-fit": "0.11.0"
+  }
+}

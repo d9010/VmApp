@@ -1,0 +1,44 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  display: flex;
+  height: 100vh;
+  font: 15px/1.6 -apple-system, system-ui, "Segoe UI", sans-serif;
+}
+#sidebar {
+  width: 220px;
+  flex: none;
+  padding: 14px;
+  border-right: 1px solid #8884;
+  overflow-y: auto;
+}
+#sidebar h2 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+#open { width: 100%; padding: 7px 10px; font: inherit; cursor: pointer; }
+#recent { list-style: none; margin: 0; padding: 0; }
+#recent button {
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#recent button:hover { background: #8882; }
+main { flex: 1; min-width: 0; padding: 14px 28px; overflow-y: auto; }
+#status { min-height: 1.4em; margin: 0 0 8px; font-size: 13px; opacity: .7; }
+#status.error { color: #c0392b; opacity: 1; }
+#content { max-width: 760px; }
+#content h1, #content h2, #content h3 { line-height: 1.25; }
+#content code { padding: 1px 4px; background: #8883; border-radius: 3px; font-family: ui-monospace, Menlo, monospace; }
+#content pre { padding: 10px 12px; background: #8832; border-radius: 6px; overflow-x: auto; }
+#content pre code { padding: 0; background: none; }
+#content blockquote { margin: 0; padding-left: 12px; border-left: 3px solid #8886; opacity: .85; }
+#content hr { border: 0; border-top: 1px solid #8886; }
+.hint { opacity: .55; }

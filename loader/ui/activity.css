@@ -1,0 +1,109 @@
+/* The activity view (library "Activity" section and the menu-bar popover). */
+.act-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.act-row + .act-row {
+  margin-top: 6px;
+}
+.act-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.act-name {
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* the full view (popover) has three buttons: they go under the name so the name is never cut off */
+.act-row:not(.compact) .act-head {
+  flex-wrap: wrap;
+}
+.act-row:not(.compact) .act-name {
+  flex: 1 0 100%;
+}
+.act-name .version {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+.act-buttons {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.act-buttons button {
+  padding: 2px 9px;
+  font-size: 12px;
+}
+.act-empty,
+.act-none {
+  font-size: 12px;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--chip);
+  color: var(--text);
+  font-size: 12px;
+  cursor: default;
+}
+.pill .pdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.pill.k-screen .pdot,
+.pill.k-input .pdot,
+.pill.k-mic .pdot {
+  background: var(--danger);
+}
+.pill.k-tools .pdot,
+.pill.k-mcp .pdot,
+.pill.k-gpu .pdot,
+.pill.k-net .pdot {
+  background: var(--warn);
+}
+.pill.k-folders .pdot {
+  background: var(--accent);
+}
+.pill .plive {
+  font-weight: 650;
+}
+.pill.pulse {
+  border-color: var(--danger);
+  font-weight: 650;
+}
+.pill.pulse .pdot {
+  animation: actpulse 1s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(196, 35, 28, 0.25);
+}
+@keyframes actpulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill.pulse .pdot {
+    animation: none;
+  }
+}

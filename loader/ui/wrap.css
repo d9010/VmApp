@@ -1,0 +1,155 @@
+/* Long unbroken text wraps inside its box. Folder paths, package ids and hashes, host names, URLs, versions and ids have no spaces to
+   break at, so without this they run out of a card, a sheet or a table cell. Linked LAST by the library, Host Capabilities, activity
+   monitor and Bridge Inspector pages (the loader CDP test, run K, switches this file off to prove the check it makes would catch it).
+   Two parts: `overflow-wrap: anywhere` (the text may break anywhere when it would not fit, and, unlike `break-word`, it also lowers the
+   box's min-content width, which is what lets flex and grid items shrink); and `min-width: 0` / `minmax(0, 1fr)` on the flex and grid
+   children that would otherwise refuse to shrink below their content. Buttons keep their labels whole and never shrink. */
+
+html,
+body {
+  overflow-wrap: anywhere;
+}
+button,
+.top {
+  overflow-wrap: normal; /* the header rows are made of buttons and short lines; their layout stays as designed */
+}
+button {
+  flex-shrink: 0;
+}
+.dot {
+  flex: none;
+}
+
+/* ---- the library's header: buttons never shrink, so when they do not all fit in one row they wrap into two ---- */
+.top .brand {
+  min-width: 0;
+}
+.top .actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ---- the library: cards, sheets, the install review, Versions, Network…, GPU…, Load examples, Browse registry ---- */
+.card,
+.card-head > *,
+.sheet,
+.sheet > *,
+.review,
+.folder > *,
+.hostsec > *,
+.pubform > *,
+.formgrid > *,
+.examples > *,
+.exrow > *,
+.browse > *,
+.bbar > *,
+.blist > *,
+.brow > *,
+.bhead > *,
+.btitle > *,
+.bmore > *,
+.perms .row > span,
+.resrow > *,
+.updates > *,
+.banner > span,
+.control-item .ctext,
+.vrow .vinfo,
+.accessrow > *,
+.tokenbox > * {
+  min-width: 0;
+}
+.card .chips > .chip,
+.exrow .chips > .chip,
+.brow > .chip {
+  max-width: 100%;
+}
+.brow > .chip {
+  justify-self: start;
+}
+.kv {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+.perms,
+.folder,
+.hostsec,
+.pubform,
+.formgrid,
+.vlist,
+.picks,
+.examples,
+.exlist,
+.exrow,
+.browse,
+.blist,
+.brow {
+  grid-template-columns: minmax(0, 1fr);
+}
+.version {
+  overflow-wrap: anywhere;
+}
+.vrow .vnum {
+  min-width: 70px;
+  max-width: 45%;
+}
+.exhead .badge {
+  flex: none;
+  white-space: nowrap;
+}
+.exhead .exname {
+  min-width: 0;
+}
+.sheet select,
+.updates select,
+.accessrow select {
+  max-width: 100%;
+}
+
+/* ---- the Host Capabilities window ---- */
+.panel,
+.panel > *,
+.permrow > *,
+.activeitem > *,
+.entry > *,
+.form > *,
+.argrow > *,
+.listhead > * {
+  min-width: 0;
+}
+.permrow .pname {
+  min-width: 140px;
+}
+.settings,
+.panel {
+  grid-template-columns: minmax(0, 1fr);
+}
+.entry {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.form {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+.argrow {
+  grid-template-columns: minmax(0, 1fr) auto 110px auto;
+}
+
+/* ---- the activity monitor (library section and popover) ---- */
+.act-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* the popover never cuts an app's name off (its buttons sit under the name); the library's compact Activity list keeps its ellipsis */
+.act-row:not(.compact) .act-name {
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* ---- the Bridge Inspector's detail pane ---- */
+.detail dl {
+  grid-template-columns: 78px minmax(0, 1fr);
+}
+.detail dd,
+.detail dt {
+  min-width: 0;
+}
+.detail dd {
+  overflow-wrap: anywhere;
+}

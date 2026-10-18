@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.terminal",
+  "name": "Terminal",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "A terminal with a shell and the Gemini CLI, running inside a VM. They can only touch the folder you grant and can only reach the Google API host you allow.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 1024,
+    "cpus": 2
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "workspace", "access": "readwrite", "purpose": "The project folder the terminal and Gemini CLI work in" }
+    ],
+    "network": [
+      { "host": "generativelanguage.googleapis.com", "purpose": "The Gemini API: Gemini CLI sends your prompts, and the files it reads to answer them, to Google here" }
+    ],
+    "dialogs": false,
+    "external": true
+  }
+}

@@ -1,0 +1,74 @@
+web: respect `extensions.webWorker` in a remote window, as the desktop does (`false`: never, `'auto'`: when a web extension needs it)
+
+The setting `extensions.webWorker` ("Enable running extensions in a web worker": `true`, `false`, `'auto'`, the default) is registered
+for every workbench, and the desktop's extension service decides with it whether and when to start the web worker extension host
+(determineLocalWebWorkerExtHostEnablement): `false` never starts it, `'auto'` starts it lazily (ExtensionHostStartup.LazyAutoStart),
+only when an extension that runs in it is installed and enabled, `true` at once. The web workbench always creates that host, at once.
+In a remote window every extension that is installed on the server runs there anyway; the local web worker host is only needed for
+browser-only extensions. An embedder whose page cannot host it (a Content-Security-Policy without frame-src for the host's iframe and
+without blob: for its worker) gets a host that fails to start on every load, with a CSP violation and an "unknown error" in the log;
+an embedder that can host it (in an isolated frame) still starts an iframe and a worker on every load that most windows never use.
+
+This makes the web workbench honour the setting in a remote window exactly as the desktop does: with `false` no web worker extension
+host is created; with `'auto'` it is created lazily, and then, as on the desktop, it takes its extensions from the extension registry
+(its data provider's restart path), since it starts only once the registry is known. `true` and a window without a remote are unchanged
+(there the web worker host is the only one).
+
+--- a/src/vs/workbench/services/extensions/browser/extensionService.ts
++++ b/src/vs/workbench/services/extensions/browser/extensionService.ts
+@@ -32,7 +32,7 @@
+ import { IExtensionManifestPropertiesService } from '../common/extensionManifestPropertiesService.js';
+ import { ExtensionRunningLocation } from '../common/extensionRunningLocation.js';
+ import { ExtensionRunningLocationTracker, filterExtensionDescriptions } from '../common/extensionRunningLocationTracker.js';
+-import { ExtensionHostExtensions, ExtensionHostStartup, IExtensionHost, IExtensionService, toExtensionDescription } from '../common/extensions.js';
++import { ExtensionHostExtensions, ExtensionHostStartup, IExtensionHost, IExtensionService, WebWorkerExtHostConfigValue, toExtensionDescription, webWorkerExtHostConfig } from '../common/extensions.js';
+ import { ExtensionsProposedApi } from '../common/extensionsProposedApi.js';
+ import { dedupExtensions } from '../common/extensionsUtil.js';
+ import { IRemoteExtensionHostDataProvider, IRemoteExtensionHostInitData, RemoteExtensionHost } from '../common/remoteExtensionHost.js';
+@@ -78,7 +78,8 @@
+ 			remoteAgentService,
+ 			remoteAuthorityResolverService,
+ 			extensionEnablementService,
+-			logService
++			logService,
++			configurationService
+ 		);
+ 		super(
+ 			{ hasLocalProcess: false, allowRemoteExtensionsInLocalWebWorker: true },
+@@ -242,6 +243,7 @@
+ 		@IRemoteAuthorityResolverService private readonly _remoteAuthorityResolverService: IRemoteAuthorityResolverService,
+ 		@IWorkbenchExtensionEnablementService private readonly _extensionEnablementService: IWorkbenchExtensionEnablementService,
+ 		@ILogService private readonly _logService: ILogService,
++		@IConfigurationService private readonly _configurationService: IConfigurationService,
+ 	) { }
+
+ 	createExtensionHost(runningLocations: ExtensionRunningLocationTracker, runningLocation: ExtensionRunningLocation, isInitialStart: boolean): IExtensionHost | null {
+@@ -250,12 +252,24 @@
+ 				return null;
+ 			}
+ 			case ExtensionHostKind.LocalWebWorker: {
++				// As on the desktop, `extensions.webWorker` decides in a remote window, where every extension installed on the server runs:
++				// `false` never starts the web worker extension host, `'auto'` (the default) only when an extension that runs in it needs it.
++				const remoteWindow = !!this._remoteAgentService.getConnection();
++				const webWorker = this._configurationService.getValue<WebWorkerExtHostConfigValue>(webWorkerExtHostConfig);
++				if (remoteWindow && webWorker === false) {
++					return null;
++				}
++				const lazy = remoteWindow && webWorker === 'auto';
+ 				const startup = (
+-					isInitialStart
+-						? ExtensionHostStartup.EagerManualStart
+-						: ExtensionHostStartup.EagerAutoStart
++					lazy
++						? ExtensionHostStartup.LazyAutoStart
++						: isInitialStart
++							? ExtensionHostStartup.EagerManualStart
++							: ExtensionHostStartup.EagerAutoStart
+ 				);
+-				return this._instantiationService.createInstance(WebWorkerExtensionHost, runningLocation, startup, this._createLocalExtensionHostDataProvider(runningLocations, runningLocation, isInitialStart));
++				// a lazy host starts once the extension registry is known, and takes its extensions from it (as on a restart and on the
++				// desktop): the initial path would scan only the extensions installed in the browser, not the server's web extensions
++				return this._instantiationService.createInstance(WebWorkerExtensionHost, runningLocation, startup, this._createLocalExtensionHostDataProvider(runningLocations, runningLocation, isInitialStart && !lazy));
+ 			}
+ 			case ExtensionHostKind.Remote: {
+ 				const remoteAgentConnection = this._remoteAgentService.getConnection();

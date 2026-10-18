@@ -1,0 +1,7 @@
+# Pinned by hash (pip --require-hashes --only-binary=:all:): the build tools of gpu/krun/build-libs.sh.
+# The versions must equal MESON_VERSION / NINJA_VERSION in pins.env (build-libs.sh checks it).
+# Hashes: https://pypi.org/pypi/meson/1.9.1/json and https://pypi.org/pypi/ninja/1.13.2/json (the macOS wheels only).
+meson==1.9.1 \
+    --hash=sha256:f824ab770c041a202f532f69e114c971918ed2daff7ea56583d80642564598d0
+ninja==1.13.2 \
+    --hash=sha256:fd82e26c0706ad4ab88e5fdd26f3fab0a987a90f810160f6c322e752c6af298b

@@ -1,0 +1,1 @@
+Hello! This file lives in the fixture "documents" folder that test/run.sh grants to the app.

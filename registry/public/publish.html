@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Publish - D9010 VmApp Registry</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="/">D9010 VmApp Registry</a>
+    <nav aria-label="Main"><a href="/">Browse</a><a href="/publish" aria-current="page">Publish</a></nav>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h1>Publish an app</h1>
+  <p class="lead">Upload a <code>.vmapp</code> file made with <code>vmapp pack</code>. The server checks every hash in the package before it accepts it.</p>
+
+  <form id="form" class="card form" autocomplete="off">
+    <label for="file">Package (.vmapp, up to 512 MiB)</label>
+    <input type="file" id="file" name="file" accept=".vmapp" required>
+
+    <label for="token">Owner token <span class="muted">(for a new version, or to add another app under your identity)</span></label>
+    <input type="password" id="token" name="token" placeholder="64 hex characters" spellcheck="false" autocomplete="off" maxlength="64">
+
+    <fieldset class="profile">
+      <legend>About you <span class="muted">(only for your first publish; optional)</span></legend>
+      <label for="pname">Your name</label>
+      <input type="text" id="pname" maxlength="100">
+      <label for="pcompany">Company</label>
+      <input type="text" id="pcompany" maxlength="100">
+      <label for="pemail">Email</label>
+      <input type="text" id="pemail" maxlength="200" inputmode="email">
+      <label for="purl">Website</label>
+      <input type="text" id="purl" maxlength="200" placeholder="https://">
+      <p class="muted">Nothing here is shown to users until you verify it (see <a href="/publisher">Verify your identity</a>). Until then your apps show as "Unverified publisher".</p>
+    </fieldset>
+
+    <button type="submit" id="go">Publish</button>
+  </form>
+
+  <p id="status" class="muted" role="status" aria-live="polite"></p>
+  <div id="result"></div>
+
+  <h2>Good to know</h2>
+  <ul class="plain">
+    <li>The first time you publish an app id, you get an <strong>owner token</strong>. It is shown once and only its hash is stored. Anyone holding it can publish new versions of that id, so keep it private.</li>
+    <li>Versions are immutable and must go up (semver). To fix a mistake, publish a higher version.</li>
+    <li>Everything in the package is public, including the code in <code>core.cpio</code>.</li>
+    <li>You can also use the command line: <code>vmapp publish app.vmapp</code>.</li>
+    <li>Publishers start as <strong>unverified</strong>. You can verify an email address, and then a domain you control, on the <a href="/publisher">Verify your identity</a> page. Users only ever see verified facts.</li>
+    <li>The registry does not review apps. Users see the permissions your app asks for and decide.</li>
+  </ul>
+</main>
+<footer class="foot">
+  <div class="wrap muted">Downloads are counted per address and version once a day; the registry keeps no addresses.</div>
+</footer>
+<script src="/common.js"></script>
+<script src="/publish.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+venus: ignore a fence retirement for a context that is already gone
+
+Applies to: slp/virglrenderer tag 0.10.4e-krunkit (bfec2d27c3953ee0530c459c2f5d042c2b619fa1).
+
+venus_state_cb_retire_fence() is called from a Vulkan queue thread of the
+renderer. A queue thread can retire a fence after the guest context was torn
+down (the guest process exited or the context was destroyed while the GPU was
+still busy). venus_lookup_context() then returns NULL and the assert() aborts
+the whole VMM process (SIGSEGV with NDEBUG, SIGABRT otherwise). This was one of
+the two crash types seen with timeline semaphores in the Venus spike (REPORT.md
+B3).
+
+Do what the surrounding code already does for stale callbacks: drop the
+retirement when the context no longer exists.
+
+This is a symptom fix: it does not make the teardown race itself go away (the
+queue thread can still race the context destruction). It only turns a certain
+crash into a no-op.
+
+Upstream status: not applicable. src/venus_context.c (the in-process Venus
+context) exists only in the macOS fork; upstream runs Venus in a separate render
+server and has no such callback.
+
+---
+ src/venus_context.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/venus_context.c b/src/venus_context.c
+index 33559c9..481c02b 100644
+--- a/src/venus_context.c
++++ b/src/venus_context.c
+@@ -422,7 +422,9 @@ static void
+ venus_state_cb_retire_fence(uint32_t ctx_id, uint32_t ring_idx, uint64_t fence_id)
+ {
+    struct venus_context *ctx = venus_lookup_context(ctx_id);
+-   assert(ctx);
++   /* A queue thread can retire a fence after the guest context was torn down. */
++   if (!ctx)
++      return;
+
+    const uint32_t seqno = (uint32_t)fence_id;
+    venus_context_retire_fences_internal(ctx, ring_idx, seqno);

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!--
+  The host page of VS Code's web worker extension host (browser-only extensions), served in an isolated frame
+  vmapp-frame://v--<hash>.exthost/ (SPEC 7 "Isolated frames"; vscode-vmapp-shim.js gives the workbench this origin as its
+  productConfiguration.webEndpointUrlTemplate, patches 0004 and 0006). Derived from VS Code 1.142.0
+  src/vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html (MIT, Copyright (c) Microsoft Corporation; ui/LICENSE.vscode.txt):
+  the same protocol with the page, its script moved to exthost-frame.js (see there for what differs).
+-->
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' https: wss: data: blob:;">
+	</head>
+	<body>
+		<script src="exthost-frame.js"></script>
+	</body>
+</html>

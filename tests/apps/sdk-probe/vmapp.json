@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.sdkprobe",
+  "name": "SDK Probe",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A test app: exposes parts of the Node SDK to the headless tests (tests/apps/sdk-probe.mjs) in a real VM.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app"
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": false,
+    "external": false,
+    "devices": [
+      { "device": "clipboard", "purpose": "The test reads and writes the clipboard from the VM." },
+      { "device": "ports", "purpose": "The test opens a server of the VM on the Mac's localhost." }
+    ]
+  }
+}

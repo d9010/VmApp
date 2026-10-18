@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hasher</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Hasher</h1>
+      <p class="muted">SHA-256 of every file in a folder. The work happens inside a sandboxed VM that can only see the folder you pick.</p>
+    </div>
+    <div class="actions">
+      <button id="btn-choose" class="primary">Choose a folder&hellip;</button>
+      <button id="btn-cancel" hidden>Cancel</button>
+      <button id="btn-save" disabled>Save report&hellip;</button>
+    </div>
+  </header>
+
+  <section class="progress-area" id="progress-area" hidden>
+    <div class="bar"><div id="bar-fill" class="fill"></div></div>
+    <div class="progress-text"><span id="progress-count"></span><span id="progress-current" class="muted"></span></div>
+  </section>
+
+  <main>
+    <div id="placeholder" class="placeholder">Pick a folder to see the hash of each file in it.</div>
+    <table id="table" hidden>
+      <thead><tr><th class="c-path">File</th><th class="c-size">Size</th><th class="c-hash">SHA-256</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </main>
+
+  <footer id="status" class="status" role="status"></footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

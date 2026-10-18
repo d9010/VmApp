@@ -1,0 +1,177 @@
+/* The screenshot picker (SPEC 8.2): loader-owned, named after the app, Deny first. */
+body {
+  display: flex;
+  flex-direction: column;
+}
+.top {
+  padding: 16px 20px 6px;
+}
+.top h1 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+.purpose,
+.lead {
+  margin: 0 0 6px;
+}
+#banner {
+  margin: 0 20px 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  background: var(--panel);
+}
+#banner[hidden],
+.purpose[hidden],
+.empty[hidden] {
+  display: none;
+}
+.list {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 20px 10px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.group h2 {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.choice {
+  display: block;
+  position: relative;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 8px;
+  cursor: pointer;
+}
+.choice:hover {
+  border-color: var(--accent);
+}
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.choice input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.choice:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.thumb {
+  height: 110px;
+  border-radius: 6px;
+  background: var(--chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 4px;
+}
+.thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+.cname {
+  margin-top: 6px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmeta {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--chip);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.rows {
+  display: grid;
+  gap: 6px;
+}
+.row.choice {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 10px;
+}
+.row .app {
+  font-weight: 650;
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .wtitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.regionbtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hint {
+  font-size: 12px;
+  margin: 2px 0 0;
+}
+.foot {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px 20px 14px;
+  display: grid;
+  gap: 6px;
+}
+.summary {
+  font-weight: 600;
+  min-height: 1.4em;
+}
+.note {
+  font-size: 12px;
+}
+.buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.grow {
+  flex: 1;
+}
+.empty {
+  padding: 10px;
+  color: var(--muted);
+}

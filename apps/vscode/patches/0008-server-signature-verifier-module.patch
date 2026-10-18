@@ -1,0 +1,21 @@
+server: let the host name the extension signature verifier module (VSCODE_SIGNATURE_VERIFIER)
+
+Code - OSS does not ship `@vscode/vsce-sign` (Microsoft's verifier, licensed to Microsoft's own products), so every marketplace
+install ends in "cannot verify the extension signature". This lets the embedder of a server point at an open verifier with the
+same `verify(vsix, sigzip, verbose)` API: the environment variable VSCODE_SIGNATURE_VERIFIER, an absolute path to an ES or
+CommonJS module, set by whoever starts the server. Unset, nothing changes. Here apps/vscode/core/main.js sets it to
+/app/sigverify.js (open code: Open VSX's Ed25519 signatures with the registry's pinned key; Microsoft's CMS signatures in part).
+
+diff -ru a/src/vs/platform/extensionManagement/node/extensionSignatureVerificationService.ts b/src/vs/platform/extensionManagement/node/extensionSignatureVerificationService.ts
+--- a/src/vs/platform/extensionManagement/node/extensionSignatureVerificationService.ts
++++ b/src/vs/platform/extensionManagement/node/extensionSignatureVerificationService.ts
+@@ -67,7 +67,8 @@
+ 	}
+
+ 	private async resolveVsceSign(): Promise<typeof vsceSign> {
+-		const mod = '@vscode/vsce-sign';
++		// an embedder may supply an open verifier with the same API (an absolute module path); otherwise Microsoft's module
++		const mod = process.env['VSCODE_SIGNATURE_VERIFIER'] || '@vscode/vsce-sign';
+ 		return import(mod);
+ 	}
+

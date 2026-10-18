@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "id": "com.vmapp.menutest",
+  "name": "Menu Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run M): its page and its core put menus in the Mac menu bar (SPEC 7 \"Menus\").",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app"
+  },
+  "ui": { "root": "ui" },
+  "permissions": { "folders": [], "dialogs": false, "external": false }
+}

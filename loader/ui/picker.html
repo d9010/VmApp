@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choose what the app can see</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="picker.css">
+</head>
+<body>
+<header class="top">
+  <h1 data-role="picker-title" id="title">Choose what the app can see</h1>
+  <p class="purpose muted" data-role="picker-purpose" id="purpose" hidden></p>
+  <p class="purpose muted" data-role="picker-suggestion" id="suggest" hidden></p>
+  <p class="lead" data-role="picker-lead">You choose what it gets: a whole display, one window or a part of a screen. It receives only what you pick, and it can see everything that is visible there, including private information.</p>
+</header>
+<div id="banner" data-role="picker-error" role="alert" hidden></div>
+<main id="list" class="list" aria-busy="true"></main>
+<footer class="foot">
+  <div class="summary" data-role="picker-summary" id="summary" aria-live="polite"></div>
+  <div class="note muted" data-role="session-note" id="note"></div>
+  <div class="buttons">
+    <button data-action="deny" id="deny" autofocus>Deny</button>
+    <span class="grow"></span>
+    <button data-action="allow-once" id="once" class="primary" disabled>Allow once</button>
+    <button data-action="allow-session" id="session" class="primary" disabled>Allow while the app runs</button>
+  </div>
+</footer>
+<script src="dom.js"></script>
+<script src="picker.js"></script>
+</body>
+</html>

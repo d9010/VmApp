@@ -1,0 +1,43 @@
+This is the file the fake user "picks" in the Open dialog. It is deliberately longer than 2 KB, so the test can
+prove that the core's preview (the first 2048 bytes) is cut off and the full size is reported separately.
+
+Line 01: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 02: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 03: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 04: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 05: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 06: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 07: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 08: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 09: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 10: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 11: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 12: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 13: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 14: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 15: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 16: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 17: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 18: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 19: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 20: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 21: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 22: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 23: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 24: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 25: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 26: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 27: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 28: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 29: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 30: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 31: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 32: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 33: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 34: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 35: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 36: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 37: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 38: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 39: the quick brown fox jumps over the lazy dog, again and again and again.
+Line 40: the quick brown fox jumps over the lazy dog, again and again and again.

@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.todo",
+  "name": "Todo",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "A small to-do list with a C# core. Needs no folder access: tasks live in the app's private data.",
+  "runtime": "dotnet8",
+  "core": {
+    "command": ["dotnet", "Todo.dll"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": false,
+    "external": false
+  }
+}

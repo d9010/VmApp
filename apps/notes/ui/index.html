@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="empty" class="empty" hidden>
+    <div class="empty-card">
+      <h1>No notes folder yet</h1>
+      <p>Notes keeps your notes as plain <code>.md</code> files in a folder on your Mac. You haven't chosen one, so there is nothing to show.</p>
+      <p>This app runs in a sandbox and can only see folders you allow. Quit and start it again, then pick a folder for <strong>notes</strong> in the permission sheet.</p>
+    </div>
+  </div>
+
+  <div id="main" class="layout" hidden>
+    <aside class="sidebar">
+      <div class="side-head">
+        <h2>Notes</h2>
+        <div class="side-actions">
+          <button id="btn-new" class="primary" title="Create a new note">New</button>
+          <button id="btn-import" title="Import a file as a note">Import&hellip;</button>
+        </div>
+      </div>
+      <ul id="list" class="note-list"></ul>
+      <p id="list-empty" class="muted pad" hidden>No notes yet. Create one with <strong>New</strong>.</p>
+    </aside>
+
+    <section class="editor">
+      <div id="no-selection" class="muted center">Select a note, or create a new one.</div>
+      <div id="editor-pane" class="pane" hidden>
+        <div class="toolbar">
+          <h2 id="note-title"></h2>
+          <span id="dirty" class="dirty" hidden>unsaved</span>
+          <span class="spacer"></span>
+          <button id="btn-save" class="primary">Save</button>
+          <button id="btn-export" title="Write an HTML copy to the export folder">Export as HTML</button>
+          <button id="btn-delete" class="danger">Delete</button>
+        </div>
+        <textarea id="text" spellcheck="false" aria-label="Note text"></textarea>
+      </div>
+      <div id="status" class="status" role="status"></div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

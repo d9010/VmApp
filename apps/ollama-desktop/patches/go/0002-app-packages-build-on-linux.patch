@@ -1,0 +1,256 @@
+From: vmapp <vmapp@example.invalid>
+Subject: [PATCH 2/2] app: let the desktop app's Go packages build on linux
+
+The desktop app (app/ui, app/store, app/server, app/tools, ...) is tagged `windows || darwin`, because its only front ends are the macOS
+and Windows apps. None of those packages needs the desktop (no cgo UI, no webview): they are a web server, a SQLite store and a
+supervisor of `ollama serve`. Widening the tag to linux makes them build, so that a headless front end (apps/ollama-desktop/backend/
+vmapp-ui) can run the app's real Go backend in a Linux VM. The only code that has to be added is the one function of the macOS
+and Windows updater that app/ui calls.
+
+---
+ app/logrotate/logrotate.go     | 2 +-
+ app/server/server.go           | 2 +-
+ app/server/server_unix.go      | 2 +-
+ app/store/cloud_config.go      | 2 +-
+ app/store/database.go          | 2 +-
+ app/store/image.go             | 2 +-
+ app/store/store.go             | 2 +-
+ app/tools/browser.go           | 2 +-
+ app/tools/browser_crawl.go     | 2 +-
+ app/tools/browser_websearch.go | 2 +-
+ app/tools/cloud_policy.go      | 2 +-
+ app/tools/tools.go             | 2 +-
+ app/tools/url_policy.go        | 2 +-
+ app/tools/web_fetch.go         | 2 +-
+ app/tools/web_search.go        | 2 +-
+ app/types/not/found.go         | 2 +-
+ app/types/not/valids.go        | 2 +-
+ app/ui/app.go                  | 2 +-
+ app/ui/extract.go              | 2 +-
+ app/ui/responses/types.go      | 2 +-
+ app/ui/ui.go                   | 2 +-
+ app/updater/updater.go         | 2 +-
+ app/updater/updater_linux.go   | 9 +++++++++
+ app/version/version.go         | 2 +-
+ 24 files changed, 32 insertions(+), 23 deletions(-)
+
+diff --git a/app/logrotate/logrotate.go b/app/logrotate/logrotate.go
+--- a/app/logrotate/logrotate.go
++++ b/app/logrotate/logrotate.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ // package logrotate provides utilities for rotating logs
+ // TODO (jmorgan): this most likely doesn't need it's own
+diff --git a/app/server/server.go b/app/server/server.go
+--- a/app/server/server.go
++++ b/app/server/server.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package server
+
+diff --git a/app/server/server_unix.go b/app/server/server_unix.go
+--- a/app/server/server_unix.go
++++ b/app/server/server_unix.go
+@@ -1,4 +1,4 @@
+-//go:build darwin
++//go:build darwin || linux
+
+ package server
+
+diff --git a/app/store/cloud_config.go b/app/store/cloud_config.go
+--- a/app/store/cloud_config.go
++++ b/app/store/cloud_config.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package store
+
+diff --git a/app/store/database.go b/app/store/database.go
+--- a/app/store/database.go
++++ b/app/store/database.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package store
+
+diff --git a/app/store/image.go b/app/store/image.go
+--- a/app/store/image.go
++++ b/app/store/image.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package store
+
+diff --git a/app/store/store.go b/app/store/store.go
+--- a/app/store/store.go
++++ b/app/store/store.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ // Package store provides a simple JSON file store for the desktop application
+ // to save and load data such as ollama server configuration, messages,
+diff --git a/app/tools/browser.go b/app/tools/browser.go
+--- a/app/tools/browser.go
++++ b/app/tools/browser.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/browser_crawl.go b/app/tools/browser_crawl.go
+--- a/app/tools/browser_crawl.go
++++ b/app/tools/browser_crawl.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/browser_websearch.go b/app/tools/browser_websearch.go
+--- a/app/tools/browser_websearch.go
++++ b/app/tools/browser_websearch.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/cloud_policy.go b/app/tools/cloud_policy.go
+--- a/app/tools/cloud_policy.go
++++ b/app/tools/cloud_policy.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/tools.go b/app/tools/tools.go
+--- a/app/tools/tools.go
++++ b/app/tools/tools.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/url_policy.go b/app/tools/url_policy.go
+--- a/app/tools/url_policy.go
++++ b/app/tools/url_policy.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/web_fetch.go b/app/tools/web_fetch.go
+--- a/app/tools/web_fetch.go
++++ b/app/tools/web_fetch.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/tools/web_search.go b/app/tools/web_search.go
+--- a/app/tools/web_search.go
++++ b/app/tools/web_search.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package tools
+
+diff --git a/app/types/not/found.go b/app/types/not/found.go
+--- a/app/types/not/found.go
++++ b/app/types/not/found.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package not
+
+diff --git a/app/types/not/valids.go b/app/types/not/valids.go
+--- a/app/types/not/valids.go
++++ b/app/types/not/valids.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package not
+
+diff --git a/app/ui/app.go b/app/ui/app.go
+--- a/app/ui/app.go
++++ b/app/ui/app.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package ui
+
+diff --git a/app/ui/extract.go b/app/ui/extract.go
+--- a/app/ui/extract.go
++++ b/app/ui/extract.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package ui
+
+diff --git a/app/ui/responses/types.go b/app/ui/responses/types.go
+--- a/app/ui/responses/types.go
++++ b/app/ui/responses/types.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package responses
+
+diff --git a/app/ui/ui.go b/app/ui/ui.go
+--- a/app/ui/ui.go
++++ b/app/ui/ui.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ // package ui implements a chat interface for Ollama
+ package ui
+diff --git a/app/updater/updater.go b/app/updater/updater.go
+--- a/app/updater/updater.go
++++ b/app/updater/updater.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package updater
+
+diff --git a/app/updater/updater_linux.go b/app/updater/updater_linux.go
+new file mode 100644
+--- /dev/null
++++ b/app/updater/updater_linux.go
+@@ -0,0 +1,9 @@
++package updater
++
++// There is no self-updater on Linux: whatever packages the app (here a vmapp package) updates it. updater.go builds without the
++// platform files; this is the one function app/ui calls that only they define.
++
++// IsUpdatePending reports whether a downloaded update is waiting to be installed. Never, on Linux.
++func IsUpdatePending() bool {
++	return false
++}
+diff --git a/app/version/version.go b/app/version/version.go
+--- a/app/version/version.go
++++ b/app/version/version.go
+@@ -1,4 +1,4 @@
+-//go:build windows || darwin
++//go:build windows || darwin || linux
+
+ package version

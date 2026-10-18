@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.ollama",
+  "name": "Ollama",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "Chat with language models that run inside a VM, using the real Ollama server. Your conversations never leave the Mac; the only network access is pulling the models you choose from Ollama's registry. Runs on the VM's CPUs; the Mac's GPU is an optional, experimental extra.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 8192,
+    "cpus": 8
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "network": [
+      { "host": "registry.ollama.ai", "purpose": "Ollama's model registry: it tells the app which files make up the model you pull. Nothing about you or your chats is sent." },
+      { "host": "dd20bb891979d25aebc8bec07b2b3bbc.r2.cloudflarestorage.com", "purpose": "Ollama's storage on Cloudflare R2: the registry redirects every model download to this host, where the model files are served." }
+    ],
+    "dialogs": false,
+    "external": false
+  }
+}

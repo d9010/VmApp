@@ -1,0 +1,39 @@
+title: Roadmap
+description: What D9010 VmApp does today, what is designed but not built, and the directions being explored. These are directions, not promises.
+---
+<p class="kicker">Directions, not promises</p>
+<h1>Roadmap</h1>
+<p class="lead">What works today, what is designed, and what we are exploring. Each item says what is already true and what is still missing.</p>
+
+<h2>Platforms</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Host</th><th>How</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td>macOS 13+, Apple silicon</td><td>Apple Virtualization framework</td><td class="yes">Built and tested</td></tr>
+    <tr><td>Windows 10/11 (x64 and ARM)</td><td>Hyper-V host compute service</td><td class="maybe">Designed, not built</td></tr>
+    <tr><td>Linux (x86_64 and arm64)</td><td>KVM with a small VMM</td><td class="maybe">Later</td></tr>
+    <tr><td>macOS on Intel</td><td>Virtualization framework</td><td class="maybe">Possible; needs x86_64 kernel and runtimes</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The app format, message protocol, SDK and catalog are the same on every host. Porting means writing one VM launcher per hypervisor. See <a href="/docs/platforms">Platforms</a>.</p>
+
+<h2>Next up</h2>
+<ul>
+  <li><strong>The public app catalog.</strong> Search, trending and publishing, with apps installed from inside the launcher so the permission sheet always comes first.</li>
+  <li><strong>Publisher signatures.</strong> So you can verify <em>who</em> made a package, not only that it is unchanged.</li>
+  <li><strong>Traffic transparency.</strong> Per-domain views and blocking, and an opt-in full inspection of an app's network traffic.</li>
+  <li><strong>A file access log.</strong> Every file an app touches, with the process and time, kept for as long as you choose.</li>
+</ul>
+
+<h2>Directions worth building toward</h2>
+<ul>
+  <li><strong>A safer home for serious apps.</strong> Logic and secrets live in the engine, not in page scripts. A script injected into the window finds no network to send data to, and no secrets to read.</li>
+  <li><strong>Local backends.</strong> Work that needs a rented server only to hide code from page scripts can run on the user's machine, in a VM, with no server and no domain.</li>
+  <li><strong>Offline-first apps that sync.</strong> The engine is a natural local server: it works offline, and syncs with the only host you allowed.</li>
+  <li><strong>GPU access.</strong> Window graphics (WebGPU) work today. Inside the VM, local AI models can use the Mac's GPU through an experimental path. A general Vulkan path is a larger project.</li>
+</ul>
+<div class="warn">
+  <p><strong>Limits.</strong> The window still uses Chromium, so against browser-engine attacks this is as strong as a browser, not stronger. Anything running on a user's machine is controlled by that user, so authoritative state (balances, anti-cheat, data shared between users) must stay on a server. Read the <a href="/docs/vision">vision</a> document for the full discussion.</p>
+</div>

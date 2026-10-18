@@ -1,0 +1,15 @@
+{
+  "comment": "The model of the Vulkan benchmark (the Llama 3.1 8B row of the README). The URL is pinned to a commit of the Hugging Face repository, so the file at that URL never changes; bytes and sha256 are those of the file (huggingface.co's own listing of that commit, and the file the spike measured). bench/vulkan/run.sh downloads it into the spike's cache/models folder when it is missing and refuses a file whose sha256 differs. The Qwen2.5 0.5B, 1.5B and 3B files of REPORT.md section 3 can be used the same way (see bench/vulkan/README.md); the 0.5B and 1.5B ones are in apps/local-llm/core/models.json.",
+  "models": [
+    {
+      "id": "llama3.1-8b",
+      "name": "Meta Llama 3.1 8B Instruct",
+      "quant": "Q4_K_M",
+      "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "bytes": 4920739232,
+      "sha256": "7b064f5842bf9532c91456deda288a1b672397a54fa729aa665952863033557c",
+      "url": "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/bf5b95e96dac0462e2a09145ec66cae9a3f12067/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "license": "Llama 3.1 Community License (GGUF conversion by bartowski)"
+    }
+  ]
+}

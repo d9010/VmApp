@@ -1,0 +1,36 @@
+# Flavour "gpu": changes to kernel/kconfig-forbidden.txt.
+#
+# The effective list of this flavour is kernel/kconfig-forbidden.txt followed by this file (kernel/build.sh keeps
+# the composed list as kernel-info-gpu/kconfig-forbidden.effective.txt). This file may only relax the common list with
+# "!NAME" exemptions: an exact symbol that a pattern of the common list would otherwise forbid, each with its reason.
+# It may also add further forbidden patterns. Nothing else of the common list is touched, so these stay forbidden
+# here exactly as in the default kernel: loadable modules, namespaces, cgroups, eBPF, USB, sound, input, HID, VT,
+# framebuffer (FB, FB_*, FRAMEBUFFER_CONSOLE), every network device and the whole netfilter/bridge stack (INV-D1), the
+# unused filesystems, KVM/Xen/VHOST, and every DRM_* option that is not exempted below (so no other DRM driver, no
+# fbdev emulation, no DRM clients, no DRM_PANIC).
+#
+# The exemptions were found by running the config check (kernel/build.sh --config-only --flavour gpu) with
+# kernel/flavours/gpu/overlay.config and nothing exempted: exactly these 10 symbols were reported, nothing outside
+# the DRM family. They are all of "DRM + the virtio-gpu driver and what those two select or define as always on".
+
+# --- Added: forbidden in this flavour although the common list does not name it -----------------------------------------
+# The research spike (gpu/venus-spike) enabled sysrq only to power off from a shell init with `echo o > /proc/sysrq-trigger`.
+# vmapp-init powers off with reboot(2), which reaches the same PSCI SYSTEM_OFF; the product has no use for sysrq.
+MAGIC_SYSRQ
+
+# --- What the overlay asks for (pattern DRM and DRM_*) ----------------------------------------------------------------
+!DRM                           # the Direct Rendering Manager core (render node /dev/dri/renderD128, ioctls)
+!DRM_VIRTIO_GPU                # the virtio-gpu driver (Venus / virgl 3D contexts, host-visible blobs)
+!DRM_VIRTIO_GPU_KMS            # its modesetting half; the driver registers its device through it (the spike used it)
+
+# --- Selected by DRM_VIRTIO_GPU (pattern DRM_*): library code, no hardware driver ---------------------------------------
+!DRM_KMS_HELPER                # CRTC/plane helpers used by the driver's display side
+!DRM_GEM_SHMEM_HELPER          # GEM objects backed by guest memory (shmem)
+!DRM_CLIENT_SELECTION          # hidden gate for in-kernel DRM clients; the clients themselves (DRM_CLIENT_LIB,
+                               # DRM_CLIENT_SETUP, DRM_FBDEV_EMULATION, DRM_CLIENT_LOG, ...) stay off and forbidden
+
+# --- Selected or defined as always on by DRM itself (pattern DRM_*) ----------------------------------------------------
+!DRM_PANEL_ORIENTATION_QUIRKS  # selected by DRM: a table of panel orientations by DMI/device-tree name; no hardware
+!DRM_BRIDGE                    # def_bool y under DRM: the bridge registry (library); no bridge driver is enabled
+!DRM_PANEL_BRIDGE              # def_bool y under DRM_BRIDGE (library)
+!DRM_PANEL                     # selected by DRM_PANEL_BRIDGE: the panel registry (library); no panel driver is enabled

@@ -1,0 +1,18 @@
+{
+  "name": "D9010 VmApp",
+  "tagline": "Run desktop apps you don't have to trust",
+  "siteUrl": "https://vmapp.dev",
+  "repoUrl": "https://github.com/d9010/VmApp",
+  "branch": "main",
+  "cloudflareProject": "d9010-vmapp",
+  "api": { "dir": "../registry-worker", "worker": "vmapp-api", "bucket": "vmapp-packages", "url": "https://api.vmapp.dev" },
+  "company": "D9010 Inc.",
+  "companyUrl": "https://d9010.com",
+  "nav": [
+    ["Docs", "/docs/"],
+    ["How it works", "/how-it-works"],
+    ["Security", "/security"],
+    ["Apps", "/apps"],
+    ["Roadmap", "/roadmap"]
+  ]
+}

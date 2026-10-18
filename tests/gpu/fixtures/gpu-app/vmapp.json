@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.gpu-test",
+  "name": "GPU test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "Talks llama.cpp's RPC protocol to the GPU server of the host from inside the VM (tests/gpu/vm-rpc.test.js).",
+  "runtime": "node22",
+  "core": { "command": ["node", "main.js"] },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "dialogs": false,
+    "host": [
+      { "cap": "gpu", "purpose": "Checks that the GPU server of the host answers" }
+    ]
+  }
+}

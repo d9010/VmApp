@@ -1,0 +1,13 @@
+# Only the registry and hostlib go into the build context (vmapp/ also holds gigabytes of build output).
+*
+!hostlib/
+!registry/
+
+# never in an image: secrets, deployment files, editor noise
+**/.env
+**/.env.*
+registry/deploy/
+registry/compose.yaml
+registry/Dockerfile*
+**/.DS_Store
+**/node_modules

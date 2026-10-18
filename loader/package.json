@@ -1,0 +1,16 @@
+{
+  "name": "vmapp-loader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "D9010 VmApp Launcher: the user's app manager and renderer host for D9010 VmApp packages",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/loader-cdp.mjs"
+  },
+  "devDependencies": {
+    "@electron/fuses": "2.1.3",
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.5"
+  }
+}

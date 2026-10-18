@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>D9010 VmApp Launcher</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="activity.css">
+<link rel="stylesheet" href="library.css">
+<link rel="stylesheet" href="wrap.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>D9010 VmApp Launcher</h1>
+    <div class="muted">Apps run in their own virtual machine. You decide what each one can reach.</div>
+  </div>
+  <div class="actions">
+    <button id="btn-inspector" data-action="open-inspector" title="Live bridge traffic of the running apps">Bridge Inspector</button>
+    <button id="btn-settings" data-action="open-settings" title="Screen, mouse and keyboard, tools and MCP servers: what apps may do on this Mac">Host Capabilities&hellip;</button>
+    <button id="btn-run-folder" data-action="run-folder" title="Developer: build a D9010 VmApp project folder on this Mac and run it">Run project folder&hellip;</button>
+    <button id="btn-browse-registry" data-action="browse-registry" title="Search the apps of an app registry you name, and install one">Browse registry&hellip;</button>
+    <button id="btn-install-registry" data-action="install-registry" title="Get an app from an app registry you name, by its id or page address">Install from registry&hellip;</button>
+    <button id="btn-install" class="primary" data-action="install" title="Install a .vmapp package file">Install from file&hellip;</button>
+  </div>
+</header>
+<div id="control-bar" data-role="control-bar" aria-live="assertive"></div>
+<section id="activity" class="activity" data-role="activity" aria-label="Activity: running apps and what they can reach"></section>
+<div id="banners" aria-live="polite"></div>
+<main id="apps" class="apps"></main>
+<div id="modal-root"></div>
+<script src="dom.js"></script>
+<script src="activity.js"></script>
+<script src="library.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "markdown-viewer",
+  "productName": "Markdown Viewer",
+  "version": "1.0.0",
+  "description": "A tiny Markdown viewer: open a .md file, read it rendered, reopen recent files.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "33.2.1"
+  }
+}

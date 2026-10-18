@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desk Helper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Desk Helper</h1>
+    <p class="lead">A demo of what an app can do on your computer <em>when you let it</em>. Nothing below works until you grant the
+      permission shown on each card. You can answer "no" to any question, and <kbd>&#8963;&#8997;&#8984;.</kbd> stops everything at once.</p>
+  </header>
+
+  <main>
+    <section class="card" id="card-look">
+      <div class="card-head">
+        <h2>1. Look at my screen</h2>
+        <span class="perm">requires permission: <code>screen</code></span>
+      </div>
+      <p class="muted">Takes one screenshot (at most 1024 points wide) and lists your open windows. <strong>You choose what it sees</strong>:
+        the app only suggests its main display, and the loader asks you to pick a display, a window or a region. It gets only what you pick.
+        The picture is sent only to this app's window; anything visible in what you pick can be seen by the app.</p>
+      <div class="row"><button id="btn-look" class="primary">Take screenshot</button><span class="status" id="st-look"></span></div>
+      <div id="look-out" hidden>
+        <p class="small" id="captured"><strong>What was captured:</strong> <span id="captured-what"></span></p>
+        <p class="muted small">Click the picture to choose a point for card 2.</p>
+        <div class="shot-wrap"><img id="shot" alt="The screenshot you chose to share"><span id="marker" class="marker" hidden></span></div>
+        <h3>Open windows</h3>
+        <table class="table"><thead><tr><th>App</th><th>Title</th><th>Bounds (points)</th></tr></thead><tbody id="windows"></tbody></table>
+      </div>
+    </section>
+
+    <section class="card" id="card-click">
+      <div class="card-head">
+        <h2>2. Point and click (demo)</h2>
+        <span class="perm danger">requires permission: <code>input</code></span>
+      </div>
+      <p class="muted">A fixed, scripted demo: <code>input.start</code> &rarr; move the pointer &rarr; click once &rarr; <code>input.stop</code>.
+        While it runs, the loader shows its red badge &ldquo;Desk Helper is controlling your computer &mdash; Stop&rdquo;.
+        The click is <strong>real</strong>: choose a harmless spot.</p>
+      <div class="row">
+        <span>Chosen point: <strong id="picked">none yet (take a screenshot and click it)</strong></span>
+      </div>
+      <div class="row">
+        <label>Width of the captured area in points <input id="pt-width" type="number" min="1" max="100000" step="1"></label>
+        <span class="muted small" id="pt-help">(used to scale the picture back to real screen points. It is filled in from what was captured, where the host says so, and only needs a value for an older loader.)</span>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="ok-click"> I understand this will really click at that point.</label>
+      </div>
+      <div class="row"><button id="btn-click" class="danger-btn" disabled>Move and click</button><span class="status" id="st-click"></span></div>
+    </section>
+
+    <section class="card" id="card-type">
+      <div class="card-head">
+        <h2>3. Type text (demo)</h2>
+        <span class="perm danger">requires permission: <code>input</code></span>
+      </div>
+      <p class="muted">After a 3 second countdown the text is typed into whichever app has the keyboard focus. Press the button,
+        then click into a text field (a note, an editor) before the countdown ends.</p>
+      <textarea id="type-text" rows="3" spellcheck="false">Hello from Desk Helper</textarea>
+      <div class="row"><button id="btn-type" class="danger-btn">Type it in 3 seconds</button><span class="status" id="st-type"></span></div>
+    </section>
+
+    <section class="card" id="card-tool">
+      <div class="card-head">
+        <h2>4. Run a tool</h2>
+        <span class="perm">requires permission: <code>tool:&lt;id&gt;</code></span>
+      </div>
+      <p class="muted">Runs one of the host tools <em>you</em> registered (<code>vmapp tool add</code>), with exactly the arguments each
+        pattern allows. There is no shell: <code>;</code> or <code>$(...)</code> are plain text.</p>
+      <div class="row"><button id="btn-tools">List my tools</button><span class="status" id="st-tools"></span></div>
+      <div id="tool-form" hidden>
+        <div class="row"><label>Tool <select id="tool-select"></select></label></div>
+        <p class="muted small" id="tool-desc"></p>
+        <label class="block">Arguments (one per line)<textarea id="tool-args" rows="3" spellcheck="false"></textarea></label>
+        <label class="block">Standard input (optional)<textarea id="tool-stdin" rows="2" spellcheck="false"></textarea></label>
+        <div class="row"><button id="btn-tool-run" class="primary">Run</button><span class="status" id="st-tool"></span></div>
+        <pre id="tool-out" class="out" hidden></pre>
+      </div>
+    </section>
+
+    <section class="card" id="card-mcp">
+      <div class="card-head">
+        <h2>5. Use an app's MCP tools</h2>
+        <span class="perm">requires permission: <code>mcp:&lt;id&gt;</code></span>
+      </div>
+      <p class="muted">Talks to MCP servers <em>you</em> registered (<code>vmapp mcp add</code>). The host starts the server for this app,
+        and only <code>tools/list</code>, <code>tools/call</code> and the read-only resource and prompt methods get through.</p>
+      <div class="row"><button id="btn-mcp">List my MCP servers</button><span class="status" id="st-mcp-list"></span></div>
+      <div id="mcp-form" hidden>
+        <div class="row">
+          <label>Server <select id="mcp-server"></select></label>
+          <label>Tool <select id="mcp-tool"></select></label>
+        </div>
+        <p class="muted small" id="mcp-desc"></p>
+        <label class="block">Arguments (JSON object)<textarea id="mcp-args" rows="3" spellcheck="false">{}</textarea></label>
+        <div class="row"><button id="btn-mcp-call" class="primary">Call</button><span class="status" id="st-mcp"></span></div>
+        <pre id="mcp-out" class="out" hidden></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

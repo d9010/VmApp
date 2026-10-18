@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "id": "com.vmapp.gputest",
+  "name": "GPU Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run J): it asks to use the GPU and exposes, through invoke handlers, what the VM sees of it ($VMAPP_GPU_RPC) and a byte round trip to the host's GPU server.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "dialogs": false,
+    "host": [
+      { "cap": "gpu", "purpose": "Runs a small language model on your GPU" }
+    ]
+  }
+}

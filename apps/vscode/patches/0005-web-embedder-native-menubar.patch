@@ -1,0 +1,273 @@
+web: let an embedder show the workbench's menu bar natively
+
+The desktop workbench gives its menu bar to Electron's main process as data (NativeMenubarControl -> IMenubarData), and the main
+process shows it in the operating system's menu bar with the keybindings as accelerators. The web workbench always draws its own
+menu bar in the page. An embedder that hosts the web workbench in a desktop shell (here the vmapp loader, which can show an app's
+menus in the Mac menu bar) has no way to take the menu bar out of the page.
+
+This adds EmbedderMenubarControl: when the embedding page provides `nativeMenubar` among its non-JSON embedder options
+(globalThis.vscodeWebEmbedderOptions, the same global as patch 0001), the title bar creates it instead of the in-page menu bar. It
+builds exactly the data NativeMenubarControl builds, from the same menus and keybindings, gives it to the embedder's update(), and
+runs the command (or opens the Open Recent entry) the embedder reports with onDidRun(). Without that option nothing changes.
+
+diff -ruN a/src/vs/workbench/browser/parts/titlebar/embedderMenubarControl.ts b/src/vs/workbench/browser/parts/titlebar/embedderMenubarControl.ts
+--- a/src/vs/workbench/browser/parts/titlebar/embedderMenubarControl.ts
++++ b/src/vs/workbench/browser/parts/titlebar/embedderMenubarControl.ts
+@@ -0,0 +1,221 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++import { IAction, Separator } from '../../../../base/common/actions.js';
++import { IDisposable } from '../../../../base/common/lifecycle.js';
++import { URI, UriComponents } from '../../../../base/common/uri.js';
++import { IMenuService, SubmenuItemAction, MenuItemAction } from '../../../../platform/actions/common/actions.js';
++import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
++import { IWorkspacesService } from '../../../../platform/workspaces/common/workspaces.js';
++import { INotificationService } from '../../../../platform/notification/common/notification.js';
++import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
++import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
++import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
++import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
++import { ILabelService } from '../../../../platform/label/common/label.js';
++import { IUpdateService } from '../../../../platform/update/common/update.js';
++import { IOpenRecentAction, MenubarControl } from './menubarControl.js';
++import { IStorageService } from '../../../../platform/storage/common/storage.js';
++import { IMenubarData, IMenubarMenu, IMenubarKeybinding, IMenubarMenuItemSubmenu, IMenubarMenuItemAction, MenubarMenuItem } from '../../../../platform/menubar/common/menubar.js';
++import { IHostService } from '../../../services/host/browser/host.js';
++import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
++import { ICommandService } from '../../../../platform/commands/common/commands.js';
++import { OpenRecentAction } from '../../actions/windowActions.js';
++import { isICommandActionToggleInfo } from '../../../../platform/action/common/action.js';
++import { getFlatContextMenuActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
++
++/**
++ * A native menu bar that the page embedding the web workbench provides: `globalThis.vscodeWebEmbedderOptions.nativeMenubar` (the
++ * same global as the other non-JSON embedder options, see workbench.ts), for an embedder that can show menus outside the page (a
++ * desktop shell around the web workbench). The workbench gives it the menu bar as data, exactly what the desktop workbench gives
++ * Electron's main process (IMenubarData), and runs the command (or opens the recent entry) the user chose.
++ */
++export interface IEmbedderMenubar {
++	update(data: IMenubarData): void;
++	onDidRun(listener: (id: string, item?: { uri?: UriComponents; remoteAuthority?: string }) => void): IDisposable | void;
++}
++
++export function getEmbedderMenubar(): IEmbedderMenubar | undefined {
++	const options = (globalThis as { vscodeWebEmbedderOptions?: { nativeMenubar?: IEmbedderMenubar } }).vscodeWebEmbedderOptions;
++	const menubar = options?.nativeMenubar;
++	return menubar && typeof menubar.update === 'function' && typeof menubar.onDidRun === 'function' ? menubar : undefined;
++}
++
++/**
++ * The menu bar of the web workbench given to the embedder's native menu bar (getEmbedderMenubar). Builds the same data as the
++ * desktop's NativeMenubarControl (electron-browser/parts/titlebar/menubarControl.ts), from the same menus and keybindings.
++ */
++export class EmbedderMenubarControl extends MenubarControl {
++
++	constructor(
++		private readonly embedder: IEmbedderMenubar,
++		@IMenuService menuService: IMenuService,
++		@IWorkspacesService workspacesService: IWorkspacesService,
++		@IContextKeyService contextKeyService: IContextKeyService,
++		@IKeybindingService keybindingService: IKeybindingService,
++		@IConfigurationService configurationService: IConfigurationService,
++		@ILabelService labelService: ILabelService,
++		@IUpdateService updateService: IUpdateService,
++		@IStorageService storageService: IStorageService,
++		@INotificationService notificationService: INotificationService,
++		@IPreferencesService preferencesService: IPreferencesService,
++		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
++		@IAccessibilityService accessibilityService: IAccessibilityService,
++		@IHostService hostService: IHostService,
++		@ICommandService commandService: ICommandService,
++	) {
++		super(menuService, workspacesService, contextKeyService, keybindingService, configurationService, labelService, updateService, storageService, notificationService, preferencesService, environmentService, accessibilityService, hostService, commandService);
++
++		const listener = this.embedder.onDidRun((id, item) => this.run(id, item));
++		if (listener) {
++			this._register(listener);
++		}
++
++		(async () => {
++			this.recentlyOpened = await this.workspacesService.getRecentlyOpened();
++
++			this.doUpdateMenubar();
++		})();
++
++		this.registerListeners();
++	}
++
++	protected override setupMainMenu(): void {
++		super.setupMainMenu();
++
++		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
++			const menu = this.menus[topLevelMenuName];
++			if (menu) {
++				this.mainMenuDisposables.add(menu.onDidChange(() => this.updateMenubar()));
++			}
++		}
++	}
++
++	protected doUpdateMenubar(): void {
++		const menubarData: IMenubarData = { menus: {}, keybindings: {} };
++		if (this.getMenubarMenus(menubarData)) {
++			this.embedder.update(menubarData);
++		}
++	}
++
++	private run(id: string, item?: { uri?: UriComponents; remoteAuthority?: string }): void {
++		if (item?.uri) {
++			// an entry of Open Recent: open it in this window, as the desktop's menu does through the main process
++			const uri = URI.revive(item.uri);
++			const openable = id === 'openRecentFile' ? { fileUri: uri } : id === 'openRecentWorkspace' ? { workspaceUri: uri } : { folderUri: uri };
++			this.hostService.openWindow([openable], item.remoteAuthority ? { remoteAuthority: item.remoteAuthority } : undefined);
++			return;
++		}
++		this.commandService.executeCommand(id);
++	}
++
++	private getMenubarMenus(menubarData: IMenubarData): boolean {
++		menubarData.keybindings = {};
++		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
++			const menu = this.menus[topLevelMenuName];
++			if (menu) {
++				const menubarMenu: IMenubarMenu = { items: [] };
++				const menuActions = getFlatContextMenuActions(menu.getActions({ shouldForwardArgs: true }));
++				this.populateMenuItems(menuActions, menubarMenu, menubarData.keybindings);
++				if (menubarMenu.items.length === 0) {
++					return false; // Menus are incomplete
++				}
++				menubarData.menus[topLevelMenuName] = menubarMenu;
++			}
++		}
++
++		return true;
++	}
++
++	private populateMenuItems(menuActions: readonly IAction[], menuToPopulate: IMenubarMenu, keybindings: { [id: string]: IMenubarKeybinding | undefined }) {
++		for (const menuItem of menuActions) {
++			if (menuItem instanceof Separator) {
++				menuToPopulate.items.push({ id: 'vscode.menubar.separator' });
++			} else if (menuItem instanceof MenuItemAction || menuItem instanceof SubmenuItemAction) {
++
++				// use mnemonicTitle whenever possible
++				const title = typeof menuItem.item.title === 'string'
++					? menuItem.item.title
++					: menuItem.item.title.mnemonicTitle ?? menuItem.item.title.value;
++
++				if (menuItem instanceof SubmenuItemAction) {
++					const submenu = { items: [] };
++
++					this.populateMenuItems(menuItem.actions, submenu, keybindings);
++
++					if (submenu.items.length > 0) {
++						const menubarSubmenuItem: IMenubarMenuItemSubmenu = {
++							id: menuItem.id,
++							label: title,
++							submenu
++						};
++
++						menuToPopulate.items.push(menubarSubmenuItem);
++					}
++				} else {
++					if (menuItem.id === OpenRecentAction.ID) {
++						const actions = this.getOpenRecentActions().map(this.transformOpenRecentAction);
++						menuToPopulate.items.push(...actions);
++					}
++
++					const menubarMenuItem: IMenubarMenuItemAction = {
++						id: menuItem.id,
++						label: title
++					};
++
++					if (isICommandActionToggleInfo(menuItem.item.toggled)) {
++						menubarMenuItem.label = menuItem.item.toggled.mnemonicTitle ?? menuItem.item.toggled.title ?? title;
++					}
++
++					if (menuItem.checked) {
++						menubarMenuItem.checked = true;
++					}
++
++					if (!menuItem.enabled) {
++						menubarMenuItem.enabled = false;
++					}
++
++					keybindings[menuItem.id] = this.getMenubarKeybinding(menuItem.id);
++					menuToPopulate.items.push(menubarMenuItem);
++				}
++			}
++		}
++	}
++
++	private transformOpenRecentAction(action: Separator | IOpenRecentAction): MenubarMenuItem {
++		if (action instanceof Separator) {
++			return { id: 'vscode.menubar.separator' };
++		}
++
++		return {
++			id: action.id,
++			uri: action.uri,
++			remoteAuthority: action.remoteAuthority,
++			enabled: action.enabled,
++			label: action.label
++		};
++	}
++
++	private getMenubarKeybinding(id: string): IMenubarKeybinding | undefined {
++		const binding = this.keybindingService.lookupKeybinding(id);
++		if (!binding) {
++			return undefined;
++		}
++
++		// first try to resolve a native accelerator
++		const electronAccelerator = binding.getElectronAccelerator();
++		if (electronAccelerator) {
++			return { label: electronAccelerator, userSettingsLabel: binding.getUserSettingsLabel() ?? undefined };
++		}
++
++		// keybindings that cannot be native accelerators (chords) are shown as a label only
++		const acceleratorLabel = binding.getLabel();
++		if (acceleratorLabel) {
++			return { label: acceleratorLabel, isNative: false, userSettingsLabel: binding.getUserSettingsLabel() ?? undefined };
++		}
++
++		return undefined;
++	}
++}
+diff -ruN a/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts b/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
+--- a/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
++++ b/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
+@@ -20,6 +20,7 @@
+ import { Color } from '../../../../base/common/color.js';
+ import { EventType, EventHelper, Dimension, append, $, addDisposableListener, prepend, reset, getWindow, getWindowId, isAncestor, getActiveDocument, isHTMLElement, AnimationFrameScheduler } from '../../../../base/browser/dom.js';
+ import { CustomMenubarControl } from './menubarControl.js';
++import { EmbedderMenubarControl, getEmbedderMenubar } from './embedderMenubarControl.js';
+ import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+ import { Emitter, Event } from '../../../../base/common/event.js';
+ import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+@@ -371,8 +372,8 @@
+ 			this.updateStyles();
+ 		}
+
+-		// Custom menu bar (disabled if auxiliary)
+-		if (!this.isAuxiliary && !hasNativeMenu(this.configurationService, this.titleBarStyle) && (!isMacintosh || isWeb)) {
++		// Custom menu bar (disabled if auxiliary, or when the embedder shows the menu bar natively)
++		if (!this.isAuxiliary && !hasNativeMenu(this.configurationService, this.titleBarStyle) && (!isMacintosh || isWeb) && !getEmbedderMenubar()) {
+ 			if (event.affectsConfiguration(MenuSettings.MenuBarVisibility)) {
+ 				if (this.currentMenubarVisibility === 'compact') {
+ 					this.uninstallMenubar();
+@@ -482,8 +483,11 @@
+ 		// Draggable region that we can manipulate for #52522
+ 		this.dragRegion = prepend(this.rootContainer, $('div.titlebar-drag-region'));
+
+-		// Menubar: install a custom menu bar depending on configuration
+-		if (
++		// Menubar: the embedder's native menu bar when the page provides one (web), else a custom menu bar depending on configuration
++		const embedderMenubar = !this.isAuxiliary ? getEmbedderMenubar() : undefined;
++		if (embedderMenubar) {
++			this._register(this.instantiationService.createInstance(EmbedderMenubarControl, embedderMenubar));
++		} else if (
+ 			!this.isAuxiliary &&
+ 			!hasNativeMenu(this.configurationService, this.titleBarStyle) &&
+ 			(!isMacintosh || isWeb) &&

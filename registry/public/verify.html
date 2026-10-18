@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Confirm your email - D9010 VmApp Registry</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="/">D9010 VmApp Registry</a>
+    <nav aria-label="Main"><a href="/">Browse</a><a href="/publish">Publish</a></nav>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h1>Confirm your email</h1>
+  <form id="form" class="card form" autocomplete="off">
+    <label for="code">Verification code</label>
+    <input type="text" id="code" maxlength="64" spellcheck="false" required>
+    <button type="submit" id="go">Confirm my email</button>
+  </form>
+  <p id="status" class="muted" role="status" aria-live="polite"></p>
+</main>
+<script src="/common.js"></script>
+<script src="/verify.js"></script>
+</body>
+</html>

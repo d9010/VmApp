@@ -1,0 +1,79 @@
+[
+  {
+    "name": "Notes",
+    "id": "dev.vmapp.notes",
+    "language": "Node.js",
+    "summary": "Markdown notes in a folder you choose. A Node app written for Electron, ported by changing one line.",
+    "asks": ["A folder to keep the notes in (read and write)", "A folder where exported pages are delivered (write only)"]
+  },
+  {
+    "name": "Todo",
+    "id": "dev.vmapp.todo",
+    "language": "C# (.NET 8)",
+    "summary": "A small to-do list with a C# engine. Everything stays in the app's own private storage.",
+    "asks": ["Nothing: no folders, no internet"]
+  },
+  {
+    "name": "Hasher",
+    "id": "dev.vmapp.hasher",
+    "language": "Rust",
+    "summary": "Computes a SHA-256 fingerprint for every file in a folder you pick, with an engine written in Rust.",
+    "asks": ["Whichever folder you pick in its dialog (read only)"]
+  },
+  {
+    "name": "Particles",
+    "id": "dev.vmapp.particles",
+    "language": "Node.js + WebGPU",
+    "summary": "A million-particle showcase. The window draws on your Mac's GPU at full speed while the scene is computed inside the VM.",
+    "asks": ["Nothing: no folders, no internet"]
+  },
+  {
+    "name": "Desk Helper",
+    "id": "dev.vmapp.deskhelper",
+    "language": "Node.js",
+    "summary": "A computer-use demo that can look at your screen, click and type for you, and use tools you register. Every power is off until you grant it.",
+    "asks": ["Your screen (only when you press its button)", "Pointer and keyboard (only when you press its buttons)", "Host tools and MCP servers you register yourself"]
+  },
+  {
+    "name": "Code - OSS (VS Code)",
+    "id": "dev.vmapp.vscode",
+    "language": "Node.js",
+    "summary": "VS Code 1.142.0 built from its open source, with its server, terminal, extensions and git all inside a VM. It sees only the folders you share.",
+    "asks": ["The project folder you open (read and write)", "The internet, any public site (git, npm, extensions); never your local network", "Your clipboard, and opening local servers in your browser"]
+  },
+  {
+    "name": "Terminal",
+    "id": "dev.vmapp.terminal",
+    "language": "Node.js",
+    "summary": "A shell and Google's Gemini CLI inside a VM. They can touch only the folder you grant and reach only the Google API host you allow.",
+    "asks": ["A project folder (read and write)", "generativelanguage.googleapis.com (Google's Gemini service)"]
+  },
+  {
+    "name": "Local LLM",
+    "id": "dev.vmapp.localllm",
+    "language": "Node.js + llama.cpp",
+    "summary": "Chat with a language model that runs on your own Mac. Your conversations never leave it. The only internet use is downloading the model you pick.",
+    "asks": ["huggingface.co (to download a model)", "Optionally your Mac's GPU"]
+  },
+  {
+    "name": "Ollama",
+    "id": "dev.vmapp.ollama",
+    "language": "Node.js + Ollama",
+    "summary": "The real Ollama server, in a VM. Chat with models that run on your Mac; pull them from Ollama's model registry.",
+    "asks": ["registry.ollama.ai and its storage host (to pull models)"]
+  },
+  {
+    "name": "Ollama Desktop",
+    "id": "dev.vmapp.ollama.desktop",
+    "language": "Go + React",
+    "summary": "Ollama's own desktop app, window and backend, built from Ollama's source and run in a VM. A good example of converting an existing app.",
+    "asks": ["Ollama's model registry and storage", "ollama.com (optional: sign-in, cloud models)"]
+  },
+  {
+    "name": "Ollama (GPU, experimental)",
+    "id": "dev.vmapp.ollama.gpu",
+    "language": "Go + Vulkan",
+    "summary": "The Ollama sample using your Mac's GPU through an experimental Vulkan backend. Without the GPU switched on and allowed, it runs on the CPUs.",
+    "asks": ["Ollama's model registry and storage", "Your Mac's GPU (experimental, off until you turn it on)"]
+  }
+]

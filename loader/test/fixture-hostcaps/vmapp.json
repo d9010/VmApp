@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "com.vmapp.hostcapstest",
+  "name": "Host Caps Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run E): it asks for the screen, the mouse and keyboard, tools and MCP servers, and exposes each through an invoke handler.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "host": [
+      { "cap": "screen", "purpose": "Reads the screen to help you fill forms" },
+      { "cap": "input", "purpose": "Clicks and types for you when you ask" },
+      { "cap": "tool:*", "purpose": "Runs the tools you allow, like screencapture" },
+      { "cap": "mcp:*", "purpose": "Uses apps that offer MCP tools, like VS Code" }
+    ]
+  }
+}

@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# Exports a clean, source-only copy of this repository, ready to push to GitHub.
+#
+#   bash tools/export-github --out DIR            DIR must not exist or must be empty (nothing is ever overwritten)
+#   bash tools/export-github --out DIR --with-d9010   also include apps/d9010-desktop (see below)
+#   bash tools/export-github --out DIR --no-verify    skip the checks and the tests
+#   bash tools/export-github --out DIR --refresh      update an earlier export of this script with the current source: files are
+#                                                     overwritten, nothing is deleted, and it refuses if DIR has uncommitted changes
+#
+# What goes in: every file git knows about in this checkout (tracked, plus new files that are not ignored), as they are on disk
+# now, so uncommitted work is included. What stays out: out/, node_modules and everything else .gitignore lists (the build output
+# is gigabytes; the source is a few MB), .DS_Store, two Venus spike logs that contain this machine's paths, and
+# apps/d9010-desktop with its tests: D9010 Desktop is proprietary and its patches and channel lists quote the app's source.
+# Decide that before you publish; --with-d9010 includes it.
+#
+# Then it checks the copy: no local paths or personal names, no key material outside tests/, the expected files, links between
+# the Markdown files, the invariant checker, and the unit, invariant and registry tests. Finally it runs `git init` in DIR so
+# you can add a remote; it does not commit, push or choose a licence.
+#
+# Build outputs are never exported: the copy rebuilds with tools/build.sh, tools/mkruntime and the apps' build.sh (README, "Building
+# from a clone"). The packaged launcher and the example packages are built, not committed (tools/package-mac.sh, tools/pack-examples).
+set -euo pipefail
+
+VMAPP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT=""
+WITH_D9010=0
+VERIFY=1
+REFRESH=0
+die() { echo "export-github: $*" >&2; exit 1; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --out) OUT="${2:?--out needs a folder}"; shift ;;
+    --with-d9010) WITH_D9010=1 ;;
+    --no-verify) VERIFY=0 ;;
+    --refresh) REFRESH=1 ;;
+    -h | --help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) die "unknown option $1 (try --help)" ;;
+  esac
+  shift
+done
+[ -n "$OUT" ] || die "give --out DIR (a folder that does not exist yet, or is empty)"
+git -C "$VMAPP" rev-parse --is-inside-work-tree > /dev/null 2>&1 || die "$VMAPP is not a git checkout"
+if [ "$REFRESH" = 1 ]; then
+  [ -d "$OUT" ] || die "--refresh: $OUT does not exist"
+  OUT="$(cd "$OUT" && pwd)"
+  [ -f "$OUT/.git/d9010-export" ] || die "--refresh: $OUT was not made by this script (it has no .git/d9010-export marker). Use a new folder."
+  if git -C "$OUT" rev-parse -q --verify HEAD > /dev/null 2>&1 && [ -n "$(git -C "$OUT" status --porcelain)" ]; then
+    die "--refresh: $OUT has uncommitted changes, and a refresh overwrites files. Commit or stash them first."
+  fi
+else
+  mkdir -p "$OUT"
+  OUT="$(cd "$OUT" && pwd)"
+  [ -z "$(ls -A "$OUT")" ] || die "$OUT is not empty: it is never overwritten. Choose a new folder, or update an earlier export with --refresh."
+fi
+case "$OUT" in "$VMAPP" | "$VMAPP"/.git*) die "the output cannot be the repository itself" ;; esac
+
+excluded() { # excluded PATH: is this file left out of the export?
+  case "$1" in
+    .DS_Store | */.DS_Store) return 0 ;;
+    gpu/venus-spike/results/first-light-info.txt | gpu/venus-spike/results/vkpeak-venus-guest.txt) return 0 ;; # raw logs with this machine's paths
+    apps/d9010-desktop/* | tests/apps/d9010-*) [ "$WITH_D9010" = 1 ] && return 1 || return 0 ;;
+  esac
+  return 1
+}
+
+LIST="$(mktemp)"
+trap 'rm -f "$LIST"' EXIT
+kept=0 left=0
+while IFS= read -r -d '' f; do
+  [ -f "$VMAPP/$f" ] || [ -L "$VMAPP/$f" ] || continue # tracked but deleted on disk
+  if excluded "$f"; then left=$((left + 1)); continue; fi
+  if [ -L "$VMAPP/$f" ]; then
+    target="$(cd "$(dirname "$VMAPP/$f")" && cd "$(dirname "$(readlink "$VMAPP/$f")")" 2> /dev/null && pwd -P)/$(basename "$(readlink "$VMAPP/$f")")"
+    case "$target" in "$VMAPP"/*) ;; *) die "$f is a symlink to $target, outside this repository" ;; esac
+  fi
+  printf '%s\0' "$f" >> "$LIST"
+  kept=$((kept + 1))
+done < <(git -C "$VMAPP" ls-files -z --cached --others --exclude-standard)
+[ "$kept" -gt 0 ] || die "nothing to export"
+
+echo "== copying $kept file(s) ($left left out) to $OUT"
+(cd "$VMAPP" && tar -cf - --null -T "$LIST") | tar -xf - -C "$OUT"
+echo "   size: $(du -sh "$OUT" | cut -f1)"
+if [ "$REFRESH" = 1 ]; then # files the source no longer has: reported, never deleted
+  stale="$(comm -23 <(git -C "$OUT" ls-files -co --exclude-standard | sort) <(tr '\0' '\n' < "$LIST" | sort))"
+  [ -z "$stale" ] || { echo "   NOTE: $(echo "$stale" | wc -l | tr -d ' ') file(s) in $OUT are not in the source any more (left alone; delete them yourself if they should go):"; echo "$stale" | head -20 | sed 's/^/     /'; }
+fi
+
+# Without D9010 Desktop, the copy must not advertise it either. The source marks what goes: a line containing
+# "d9010-desktop:omit-line" is removed, and text between <!--d9010-desktop:begin--> and <!--d9010-desktop:end--> is removed.
+if [ "$WITH_D9010" = 0 ]; then
+  node -e '
+    const fs = require("fs"), path = require("path");
+    let changed = 0;
+    (function walk(d) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name === ".git" || e.name === "node_modules") continue;
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!e.isFile() || e.name === "export-github") continue;
+        let t; try { t = fs.readFileSync(p, "utf8"); } catch { continue; }
+        if (!t.includes("d9010-desktop:")) continue;
+        const n = t.replace(/<!--d9010-desktop:begin-->[\s\S]*?<!--d9010-desktop:end-->/g, "").replace(/^.*d9010-desktop:omit-line.*\n/gm, "");
+        if (n !== t) { fs.writeFileSync(p, n); changed++; }
+      }
+    })(process.argv[1]);
+    console.log("   removed the D9010 Desktop mentions from " + changed + " file(s)");
+  ' "$OUT"
+fi
+
+if [ "$VERIFY" = 1 ]; then
+  fail=0
+  bad() { echo "   FAIL: $*" >&2; fail=1; }
+
+  echo "== checking the copy"
+  # this machine's paths and the maintainer's name (macOS paths such as /Users/u or /Volumes/<disk> in the code are fine)
+  hits="$(grep -rIlE '/Volumes/(ResearchTest|ProjectsMac)|/Users/mubbasher|mubbasher|D9010NativePlatform' "$OUT" --exclude-dir=.git --exclude=export-github 2> /dev/null || true)"
+  [ -z "$hits" ] || bad "local paths or personal names in: $(echo "$hits" | sed "s|$OUT/||" | tr '\n' ' ')"
+  # key material outside tests/ (the tests carry documented fake keys)
+  hits="$(grep -rIlE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{32,}' "$OUT" --exclude-dir=.git --exclude-dir=tests 2> /dev/null || true)"
+  [ -z "$hits" ] || bad "possible key material in: $(echo "$hits" | sed "s|$OUT/||" | tr '\n' ' ')"
+  # D9010 Desktop is proprietary: when it is not exported, nothing of it may remain, not even its name
+  if [ "$WITH_D9010" = 0 ]; then
+    hits="$(grep -rIliE 'd9010-desktop|D9010 Desktop|d9010\.desktop' "$OUT" --exclude-dir=.git --exclude=export-github 2> /dev/null || true)"
+    [ -z "$hits" ] || bad "D9010 Desktop is still mentioned in: $(echo "$hits" | sed "s|$OUT/||" | tr '\n' ' ')"
+  fi
+  # the files a clone needs to build and run
+  for f in LICENSE THIRD-PARTY-NOTICES.md SECURITY.md .github/workflows/tests.yml README.md SPEC.md GOVERNANCE.md tools/build.sh tools/vmapp tools/doctor docs/TOOLCHAIN.md loader/package.json loader/package-lock.json hostlib/session.js host/Cargo.toml guest/Cargo.toml kernel/pins.env registry/server.js registry/Dockerfile registry/compose.yaml .gitignore; do
+    [ -e "$OUT/$f" ] || bad "missing $f"
+  done
+  # links between the Markdown files (a warning: a few may be broken in the source as well)
+  node -e '
+    const fs = require("fs"), path = require("path");
+    const root = process.argv[1]; const missing = [];
+    (function walk(d) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name === ".git" || e.name === "node_modules") continue;
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".md")) {
+          for (const m of fs.readFileSync(p, "utf8").matchAll(/\]\(([^)\s<>]+)\)/g)) {
+            const l = m[1].split("#")[0];
+            if (!l || /^(https?:|mailto:|\/)/.test(l)) continue;
+            if (!fs.existsSync(path.resolve(path.dirname(p), decodeURIComponent(l)))) missing.push(path.relative(root, p) + " -> " + l);
+          }
+        }
+      }
+    })(root);
+    if (missing.length) { console.log("   WARN: " + missing.length + " broken link(s) between Markdown files:"); for (const m of missing.slice(0, 20)) console.log("     " + m); }
+    else console.log("   links between the Markdown files: all resolve");
+  ' "$OUT"
+  (cd "$OUT" && node tools/check-invariants --root "$OUT" > /tmp/export-github-invariants.log 2>&1) && echo "   invariants: OK" || { bad "tools/check-invariants failed (see /tmp/export-github-invariants.log)"; }
+
+  echo "== running the tests in the copy (unit, invariants, registry)"
+  run_tests() { (cd "$OUT" && node --test tests/unit/ tests/invariants/ tests/registry/ > /tmp/export-github-tests.log 2>&1); }
+  tests_summary() { grep -E '^# (pass|fail)' /tmp/export-github-tests.log | tr '\n' ' '; }
+  if run_tests; then
+    echo "   tests: $(tests_summary)"
+  else
+    # a few tests wait for a one-second poll and can miss it when the whole suite runs in parallel: one more run; a real failure fails twice
+    echo "   first run: $(tests_summary); running the suite once more"
+    if run_tests; then echo "   tests: $(tests_summary) (second run)"; else bad "tests failed in the copy twice: $(tests_summary) (see /tmp/export-github-tests.log)"; fi
+  fi
+  [ "$fail" = 0 ] || die "the copy did not pass its checks; it stays in $OUT for you to look at"
+fi
+
+if [ "$REFRESH" = 1 ]; then
+  echo
+  echo "refreshed: $OUT  ($kept files). Review it with:  cd \"$OUT\" && git status && git diff   then commit what you accept."
+else
+  git -C "$OUT" init -q -b main
+  printf 'made by tools/export-github on %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OUT/.git/d9010-export" # marks a folder --refresh may update
+  echo
+  echo "done: $OUT  ($kept files, a new git repository on branch main, nothing committed)"
+  echo "next: cd \"$OUT\" && git add -A && git commit -m \"D9010 VmApp\" && git remote add origin <your GitHub URL> && git push -u origin main"
+  [ -f "$OUT/LICENSE" ] || echo "      Add a LICENSE first (README, \"Licence\"): without one, nobody is granted any rights."
+  echo "      Later, update this folder from the source with:  bash tools/export-github --out \"$OUT\" --refresh"
+fi

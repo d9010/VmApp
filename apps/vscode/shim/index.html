@@ -1,0 +1,75 @@
+<!-- Copyright (C) Microsoft Corporation. All rights reserved. -->
+<!-- Adapted from src/vs/code/browser/workbench/workbench.html of microsoft/vscode 1.142.0 (MIT): the page the VS Code Server renders,
+     without its inline scripts and server placeholders. ui/vscode-vmapp-shim.js does what those did and loads the workbench. -->
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+
+		<!-- Disable pinch zooming -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+
+		<!-- Workbench Icon/CSS -->
+		<link rel="icon" href="/static/resources/server/favicon.ico" type="image/x-icon" />
+		<link rel="stylesheet" href="/static/out/vs/code/browser/workbench/workbench.css">
+
+		<!-- Startup fallback: shown only if the scripts below never run. Styles are inlined and hardcoded because no theme or workbench
+			CSS has loaded at that point (the window's CSP allows inline styles, not inline scripts). -->
+		<style>
+			#vscode-startup-fallback {
+				visibility: hidden;
+				animation: vscode-startup-fallback-reveal 0s linear 10s forwards;
+				position: fixed;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: safe center;
+				margin: 0;
+				overflow: auto;
+				padding: 0 24px;
+				text-align: center;
+				font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+				color: #3b3b3b;
+				background-color: #f8f8f8;
+			}
+
+			@keyframes vscode-startup-fallback-reveal {
+				to { visibility: visible; }
+			}
+
+			#vscode-startup-fallback h1 {
+				margin: 0 0 8px;
+				font-size: 16px;
+				font-weight: 600;
+			}
+
+			#vscode-startup-fallback p {
+				margin: 0;
+				max-width: 52ch;
+				font-size: 13px;
+				line-height: 1.5;
+			}
+
+			@media (prefers-color-scheme: dark) {
+				#vscode-startup-fallback {
+					color: #cccccc;
+					background-color: #1f1f1f;
+				}
+			}
+		</style>
+	</head>
+
+	<body aria-label="">
+		<div id="vscode-startup-fallback">
+			<h1>The editor failed to load</h1>
+			<p>The workbench's scripts did not run. The app log in the loader has the details.</p>
+		</div>
+	</body>
+
+	<!-- Startup (do not modify order of script tags!) -->
+	<!-- the bridge carries the extension resources the server has (the built-in extensions' files and /vscode-remote-resource); the
+		window's own files under /static/ are fetched from the package directly (the feature "self-fetch") -->
+	<script src="/vmapp-fetch.js" data-prefix="/vscode-remote-resource,/static/extensions/"></script>
+	<script src="/vscode-vmapp-shim.js"></script>
+</html>

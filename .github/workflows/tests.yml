@@ -1,0 +1,19 @@
+# The tests that need only Node.js: no VM, no Docker, no Rust (README, "Contributing", the `launcher` part). They run on an Apple-silicon runner
+# because the project is tested on macOS. The real-VM tests (tests/e2e.sh, tests/apps/) need a Mac that can run virtual machines and run locally.
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  portable:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Invariant checks
+        run: node tools/check-invariants
+      - name: Unit, invariant and registry tests
+        # a few tests wait for a one-second poll and can miss it on a busy runner: one more run, as tools/export-github does
+        run: node --test tests/unit/ tests/invariants/ tests/registry/ || node --test tests/unit/ tests/invariants/ tests/registry/

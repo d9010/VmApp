@@ -1,0 +1,17 @@
+[package]
+name = "guest-net-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runs the unit tests of guest/src/netproxy.rs (the HTTP proxy and the host-service listener) natively on the build machine: the guest itself only compiles for Linux."
+
+[[bin]]
+name = "guest-net-tests"
+path = "src/main.rs"
+
+# Standalone package: not part of any parent workspace.
+[workspace]
+
+[dependencies]
+# Same pinned version the guest uses.
+libc = "=0.2.190"

@@ -1,0 +1,207 @@
+vkr: handle ring fatal error more robustly (backport of upstream, squashed)
+
+Applies to: slp/virglrenderer tag 0.10.4e-krunkit (bfec2d27c3953ee0530c459c2f5d042c2b619fa1).
+
+Backport of three upstream virglrenderer commits by Yiwei Zhang
+<zzyiwei@chromium.org> (all in virglrenderer 1.1.0 and later), squashed into
+the form they have in upstream 1.3.0:
+
+  e933cd5a  vkr: handle ring fatal error more robustly   (MR 1378, Jun 2024)
+  4e521ea4  vkr: log more on ring fatal                    (MR 1379)
+  2b36f184  vkr: fix a prior ring wait seqno validation    (MR 1390; fixes e933cd5a)
+
+The problem (Venus spike REPORT.md B4): when the ring thread of a guest context
+fails (a malformed command, a failed pipeline creation that the guest then
+waits on, an invalid asynchronous ring wait), the context is marked fatal, but
+the thread that executes a synchronous vkWaitRingSeqnoMESA stays blocked in
+vkr_context_wait_ring_seqno() on a condition variable that nobody signals any
+more. With the in-process Venus context of this fork that thread is libkrun's
+virtio-gpu control-queue worker, so the whole GPU of the VM hangs.
+
+What the change does:
+ - vkr_context_wait_ring_seqno() stops waiting as soon as the context is fatal;
+ - when the ring thread exits with an error it marks the context fatal and
+   wakes the waiter (vkr_context_on_ring_fatal);
+ - the ring thread, when idle, checks that the ring can still reach the seqno a
+   waiter is blocked on, and fails the ring (-EINVAL) when it cannot (an invalid
+   guest wait would otherwise block the waiter forever);
+ - vkWaitRingSeqnoMESA wakes the ring first, so that check sees fresh state;
+ - the seqno parameter of vkr_context_on_ring_seqno_update() is uint32_t like
+   the ring registers, vkr_seqno_ge() moves to vkr_common.h so the ring thread
+   can use it, and two failure paths log why they failed.
+
+The fork's code in these places is identical to upstream's before e933cd5a
+(only line offsets differ), so the three upstream diffs apply without textual
+changes; this file is their combined result.
+
+Upstream status: all three are merged upstream (virglrenderer >= 1.1.0).
+
+---
+ src/venus/vkr_common.h    |  7 +++++++
+ src/venus/vkr_context.c   | 37 ++++++++++++++++++++++++++++---------
+ src/venus/vkr_context.h   | 10 +++++++++-
+ src/venus/vkr_ring.c      | 22 +++++++++++++++++++++-
+ src/venus/vkr_transport.c |  3 +++
+ 5 files changed, 68 insertions(+), 11 deletions(-)
+
+diff --git a/src/venus/vkr_common.h b/src/venus/vkr_common.h
+index c383597..d8a3aa9 100644
+--- a/src/venus/vkr_common.h
++++ b/src/venus/vkr_common.h
+@@ -316,4 +316,11 @@ vkr_region_make_relative(const struct vkr_region *region)
+    };
+ }
+
++static inline bool
++vkr_seqno_ge(uint32_t a, uint32_t b)
++{
++   /* a >= b, but deal with wrapping as well */
++   return (a - b) <= INT32_MAX;
++}
++
+ #endif /* VKR_COMMON_H */
+diff --git a/src/venus/vkr_context.c b/src/venus/vkr_context.c
+index c17dcc1..1a2a636 100644
+--- a/src/venus/vkr_context.c
++++ b/src/venus/vkr_context.c
+@@ -403,17 +403,10 @@ vkr_context_destroy_resource(struct vkr_context *ctx, uint32_t res_id)
+    vkr_context_remove_resource(ctx, res_id);
+ }
+
+-static inline bool
+-vkr_seqno_ge(uint32_t a, uint32_t b)
+-{
+-   /* a >= b, but deal with wrapping as well */
+-   return (a - b) <= INT32_MAX;
+-}
+-
+ void
+ vkr_context_on_ring_seqno_update(struct vkr_context *ctx,
+                                  uint64_t ring_id,
+-                                 uint64_t ring_seqno)
++                                 uint32_t ring_seqno)
+ {
+    mtx_lock(&ctx->wait_ring.mutex);
+    if (ctx->wait_ring.id == ring_id && vkr_seqno_ge(ring_seqno, ctx->wait_ring.seqno))
+@@ -421,6 +414,31 @@ vkr_context_on_ring_seqno_update(struct vkr_context *ctx,
+    mtx_unlock(&ctx->wait_ring.mutex);
+ }
+
++bool
++vkr_context_get_wait_ring_seqno(struct vkr_context *ctx,
++                                uint64_t ring_id,
++                                uint32_t *out_seqno)
++{
++   bool wait_ring = false;
++   mtx_lock(&ctx->wait_ring.mutex);
++   if (ctx->wait_ring.id == ring_id) {
++      wait_ring = true;
++      *out_seqno = ctx->wait_ring.seqno;
++   }
++   mtx_unlock(&ctx->wait_ring.mutex);
++   return wait_ring;
++}
++
++void
++vkr_context_on_ring_fatal(struct vkr_context *ctx)
++{
++   vkr_context_set_fatal(ctx);
++
++   mtx_lock(&ctx->wait_ring.mutex);
++   cnd_signal(&ctx->wait_ring.cond);
++   mtx_unlock(&ctx->wait_ring.mutex);
++}
++
+ bool
+ vkr_context_wait_ring_seqno(struct vkr_context *ctx,
+                             struct vkr_ring *ring,
+@@ -433,7 +451,8 @@ vkr_context_wait_ring_seqno(struct vkr_context *ctx,
+    mtx_lock(&ctx->wait_ring.mutex);
+    ctx->wait_ring.id = ring->id;
+    ctx->wait_ring.seqno = ring_seqno;
+-   while (ok && !vkr_seqno_ge(vkr_ring_load_head(ring), ring_seqno)) {
++   while (!vkr_context_get_fatal(ctx) && ok &&
++          !vkr_seqno_ge(vkr_ring_load_head(ring), ring_seqno)) {
+       ok = cnd_wait(&ctx->wait_ring.cond, &ctx->wait_ring.mutex) == thrd_success;
+    }
+    ctx->wait_ring.id = 0;
+diff --git a/src/venus/vkr_context.h b/src/venus/vkr_context.h
+index 931d103..e4a8c58 100644
+--- a/src/venus/vkr_context.h
++++ b/src/venus/vkr_context.h
+@@ -243,7 +243,15 @@ vkr_context_get_object(struct vkr_context *ctx, vkr_object_id obj_id)
+ void
+ vkr_context_on_ring_seqno_update(struct vkr_context *ctx,
+                                  uint64_t ring_id,
+-                                 uint64_t ring_seqno);
++                                 uint32_t ring_seqno);
++
++bool
++vkr_context_get_wait_ring_seqno(struct vkr_context *ctx,
++                                uint64_t ring_id,
++                                uint32_t *out_seqno);
++
++void
++vkr_context_on_ring_fatal(struct vkr_context *ctx);
+
+ bool
+ vkr_context_wait_ring_seqno(struct vkr_context *ctx,
+diff --git a/src/venus/vkr_ring.c b/src/venus/vkr_ring.c
+index ee4f1ef..ec3e4b7 100644
+--- a/src/venus/vkr_ring.c
++++ b/src/venus/vkr_ring.c
+@@ -279,6 +279,8 @@ vkr_ring_thread(void *arg)
+       const uint32_t cmd_size = vkr_ring_load_tail(ring) - ring->buffer.cur;
+       if (cmd_size) {
+          if (cmd_size > ring->buffer.size) {
++            vkr_log("%s: cmd_size(%u) > ring->buffer.size(%u)", __func__, cmd_size,
++                    ring->buffer.size);
+             ret = -EINVAL;
+             break;
+          }
+@@ -294,12 +296,30 @@ vkr_ring_thread(void *arg)
+          last_submit = vkr_ring_now();
+          relax_iter = 0;
+       } else {
++         /* Get the active wait_ring seqno first to ensure ordering. */
++         uint32_t wait_ring_seqno = 0;
++         if (vkr_context_get_wait_ring_seqno(ctx, ring->id, &wait_ring_seqno)) {
++            /* Error out if the latest ring cmd is unable to signal the virtqueue that is
++             * currently waiting for this ring. This happens when the driver emits invalid
++             * asynchronous ring wait cmds.
++             */
++            const uint32_t ring_tail = vkr_ring_load_tail(ring);
++            if (unlikely(!vkr_seqno_ge(ring_tail, wait_ring_seqno))) {
++               vkr_log("%s: ring seqno(%u) unable to reach wait seqno(%u)", __func__,
++                       ring_tail, wait_ring_seqno);
++               ret = -EINVAL;
++               break;
++            }
++         }
++
+          vkr_ring_relax(&relax_iter);
+       }
+    }
+
+-   if (ret < 0)
++   if (ret < 0) {
+       vkr_ring_set_status_bits(ring, VK_RING_STATUS_FATAL_BIT_MESA);
++      vkr_context_on_ring_fatal(ctx);
++   }
+
+    return ret;
+ }
+diff --git a/src/venus/vkr_transport.c b/src/venus/vkr_transport.c
+index 89a45e4..3491b1c 100644
+--- a/src/venus/vkr_transport.c
++++ b/src/venus/vkr_transport.c
+@@ -338,6 +338,9 @@ vkr_dispatch_vkWaitRingSeqnoMESA(struct vn_dispatch_context *dispatch,
+       return;
+    }
+
++   /* ensure to wake ring up to properly error out invalid ring wait */
++   vkr_ring_notify(ring);
++
+    if (!vkr_context_wait_ring_seqno(ctx, ring, args->seqno))
+       vkr_context_set_fatal(ctx);
+ }

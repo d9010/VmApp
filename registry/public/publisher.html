@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify your identity - D9010 VmApp Registry</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="/">D9010 VmApp Registry</a>
+    <nav aria-label="Main"><a href="/">Browse</a><a href="/publish">Publish</a></nav>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h1>Verify your identity</h1>
+  <p class="lead">Users only see what is verified. Until you verify, your apps show as "Unverified publisher". Nothing you type here is shown publicly before it is verified.</p>
+
+  <form id="login" class="card form" autocomplete="off">
+    <label for="token">Your owner token</label>
+    <input type="password" id="token" placeholder="64 hex characters" spellcheck="false" maxlength="64" required>
+    <p class="muted">The token stays in this page only. It is not stored in your browser.</p>
+    <button type="submit">Continue</button>
+  </form>
+
+  <p id="status" class="muted" role="status" aria-live="polite"></p>
+
+  <div id="panel" hidden>
+    <section class="card">
+      <h2>How users see you now</h2>
+      <p id="current"></p>
+      <ul class="plain">
+        <li><strong>Unverified:</strong> users see only "Unverified publisher".</li>
+        <li><strong>Email verified:</strong> users see "Verified email @yourdomain.com" (never the full address or your name).</li>
+        <li><strong>Domain verified:</strong> users see "Verified: yourdomain.com", plus your company name and website if the website is on that domain.</li>
+      </ul>
+    </section>
+
+    <form id="profile" class="card form" autocomplete="off">
+      <h2>Your details</h2>
+      <label for="pname">Name</label>
+      <input type="text" id="pname" maxlength="100">
+      <label for="pcompany">Company</label>
+      <input type="text" id="pcompany" maxlength="100">
+      <label for="pemail">Email</label>
+      <input type="text" id="pemail" maxlength="200" inputmode="email">
+      <label for="purl">Website</label>
+      <input type="text" id="purl" maxlength="200" placeholder="https://">
+      <button type="submit">Save details</button>
+      <p class="muted">Changing the email removes its verification.</p>
+    </form>
+
+    <section class="card">
+      <h2>1. Verify your email</h2>
+      <p>We send a one-time link to the address above. It works for 15 minutes.</p>
+      <button type="button" id="sendmail">Send verification email</button>
+      <p id="mailmsg" class="muted" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>2. Verify a domain you control</h2>
+      <p>Prove you control a domain by publishing a short token on it. Then users see the domain, your company and your website.</p>
+      <label for="domain">Domain</label>
+      <input type="text" id="domain" placeholder="example.com" maxlength="253">
+      <p><button type="button" id="startdomain">Get my token</button></p>
+      <div id="instructions" hidden>
+        <p>Do <strong>one</strong> of these, then press "Check now":</p>
+        <ol class="plain">
+          <li>Serve this exact line at <code id="fileurl"></code> (HTTPS only, no redirects):<pre class="cmd" id="filecontent"></pre></li>
+          <li>Or add a DNS <strong>TXT</strong> record named <code id="dnsname"></code> with the value:<pre class="cmd" id="dnsvalue"></pre></li>
+        </ol>
+        <button type="button" id="checkdomain">Check now</button>
+      </div>
+      <p id="domainmsg" class="muted" role="status"></p>
+    </section>
+  </div>
+</main>
+<footer class="foot">
+  <div class="wrap muted">This is not an account system. Your owner token is your identity here. Signatures come later.</div>
+</footer>
+<script src="/common.js"></script>
+<script src="/publisher.js"></script>
+</body>
+</html>

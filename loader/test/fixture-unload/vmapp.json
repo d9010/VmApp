@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "id": "com.vmapp.unloadtest",
+  "name": "Unload Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run U): its page vetoes its own unload, and the loader asks \"Leave this page?\" (SPEC 7).",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app"
+  },
+  "ui": { "root": "ui" },
+  "permissions": { "folders": [], "dialogs": false, "external": false }
+}

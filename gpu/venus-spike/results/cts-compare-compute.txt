@@ -1,0 +1,7 @@
+native: NotSupported=56 Pass=717 
+venus: NotSupported=57 Pass=716 
+cases in both: 773
+outcome differs (native -> venus), summary:
+   1 Pass -> NotSupported
+examples (first 25):
+  dEQP-VK.compute.pipeline.device_group.dispatch_base_maintenance5  (Pass -> NotSupported)

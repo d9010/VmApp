@@ -1,0 +1,19 @@
+[package]
+name = "mkcpio"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic newc cpio writer for D9010 VmApp: packs a directory (core.cpio) or builds the initramfs"
+publish = false
+
+# Standalone package: never a member of a workspace found further up the tree.
+[workspace]
+
+[[bin]]
+name = "mkcpio"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+strip = true

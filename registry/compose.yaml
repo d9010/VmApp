@@ -1,0 +1,36 @@
+# The vmapp registry, one service. Run it from this folder:
+#
+#   cp .env.example .env && chmod 600 .env     # then edit .env (it holds the storage credentials; never commit it)
+#   docker compose up -d --build
+#   curl http://127.0.0.1:8790/api/stats
+#
+# It listens on 127.0.0.1 only. A reverse proxy or a Cloudflare Tunnel on the same machine is what the internet talks
+# to (registry/deploy/HOSTING.md). Run ONE copy: the registry is a single-writer server (README, "Storage").
+
+services:
+  registry:
+    build:
+      context: ..                    # vmapp/ : the image needs hostlib/ as well
+      dockerfile: registry/Dockerfile
+    image: vmapp-registry:local
+    env_file: .env
+    environment:
+      REGISTRY_DATA: /data
+      REGISTRY_HOST: 0.0.0.0         # inside the container; the published port below is what limits who can connect
+    ports:
+      # host address : host port : container port. Change REGISTRY_BIND only if the proxy is not on this machine.
+      - "${REGISTRY_BIND:-127.0.0.1}:${REGISTRY_HOST_PORT:-8790}:8790"
+    volumes:
+      - registry-data:/data          # scratch space for uploads; the whole store too with REGISTRY_STORAGE=local
+    read_only: true                  # nothing outside /data and /tmp is ever written
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s           # time for the counters, the last snapshot and the lease release
+
+volumes:
+  registry-data:

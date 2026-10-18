@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terminal</title>
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <label class="profile">
+        <span>Profile</span>
+        <select id="profile" aria-label="Profile"></select>
+      </label>
+      <span id="where" class="where" title=""></span>
+      <span class="spacer"></span>
+      <button id="restart" type="button" title="Start this profile again">Restart</button>
+      <button id="settings-btn" type="button" aria-expanded="false" aria-controls="settings">Settings</button>
+    </header>
+
+    <main class="stage">
+      <div id="term" class="term" aria-label="Terminal"></div>
+
+      <aside id="settings" class="settings" hidden aria-label="Settings">
+        <div class="settings-head">
+          <h2>Settings</h2>
+          <button id="settings-close" type="button" aria-label="Close settings">Close</button>
+        </div>
+
+        <section id="secrets"></section>
+
+        <section class="group">
+          <h3>Text size</h3>
+          <div class="row">
+            <button id="font-smaller" type="button" aria-label="Smaller text">A&minus;</button>
+            <span id="font-size" class="muted"></span>
+            <button id="font-larger" type="button" aria-label="Larger text">A+</button>
+          </div>
+        </section>
+
+        <section class="group muted small">
+          <h3>Good to know</h3>
+          <ul>
+            <li>Programs here run in a sandbox. They can change only the workspace folder you granted and reach only the hosts you allowed.</li>
+            <li>Google sign-in in the browser does not work here, because the sign-in callback cannot reach the sandbox. Use an API key.</li>
+            <li>Copy with &#8984;C, paste with &#8984;V, clear the screen with &#8984;K.</li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <div id="ended" class="ended" role="status" hidden>
+      <span id="ended-text"></span>
+      <button id="ended-restart" type="button" class="primary">Restart</button>
+    </div>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

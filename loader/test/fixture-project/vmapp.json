@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "com.vmapp.devproject",
+  "name": "Dev Project",
+  "version": "0.1.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny project folder used by the loader's CDP test for Run project folder, Rebuild & run and Publish.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [{ "name": "work", "access": "read", "purpose": "A folder the dev project reads" }],
+    "dialogs": false,
+    "external": false
+  }
+}

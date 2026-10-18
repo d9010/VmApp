@@ -1,0 +1,32 @@
+native: Fail=8 NotSupported=1254 Pass=4903 
+venus: Fail=8 NotSupported=1281 Pass=4876 
+cases in both: 6165
+outcome differs (native -> venus), summary:
+  62 Pass -> NotSupported
+  35 NotSupported -> Pass
+examples (first 25):
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.buffer_1048577  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.buffer_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.buffer_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.buffer_4087  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.buffer_8095  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_257_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_257_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_257_8  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_33_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_33_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_33_8  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_8_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_8_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.aliasing.suballocated.image_8_8  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.buffer_1048577  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.buffer_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.buffer_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.buffer_4087  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.buffer_8095  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_257_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_257_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_257_8  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_33_257  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_33_33  (Pass -> NotSupported)
+  dEQP-VK.memory.binding.maintenance6.regular.dedicated.image_33_8  (Pass -> NotSupported)

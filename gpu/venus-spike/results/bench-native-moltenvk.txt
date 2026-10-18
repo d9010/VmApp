@@ -1,0 +1,12 @@
+##### qwen2.5-0.5b-instruct-q4_k_m MOLTENVK(native)
+| qwen2 1B Q4_K - Medium         | 462.96 MiB |   630.17 M | Vulkan     |  99 |           pp512 |      8775.05 ± 75.54 |
+| qwen2 1B Q4_K - Medium         | 462.96 MiB |   630.17 M | Vulkan     |  99 |           tg128 |       276.79 ± 22.41 |
+##### qwen2.5-1.5b-instruct-q4_k_m MOLTENVK(native)
+| qwen2 1.5B Q4_K - Medium       |   1.04 GiB |     1.78 B | Vulkan     |  99 |           pp512 |      3182.71 ± 81.76 |
+| qwen2 1.5B Q4_K - Medium       |   1.04 GiB |     1.78 B | Vulkan     |  99 |           tg128 |       173.72 ± 14.19 |
+##### qwen2.5-3b-instruct-q4_k_m MOLTENVK(native)
+| qwen2 3B Q4_K - Medium         |   1.95 GiB |     3.40 B | Vulkan     |  99 |           pp512 |       1545.63 ± 6.95 |
+| qwen2 3B Q4_K - Medium         |   1.95 GiB |     3.40 B | Vulkan     |  99 |           tg128 |        108.99 ± 3.36 |
+##### Meta-Llama-3.1-8B-Instruct-Q4_K_M MOLTENVK(native)
+| llama 8B Q4_K - Medium         |   4.58 GiB |     8.03 B | Vulkan     |  99 |           pp512 |        682.13 ± 1.21 |
+| llama 8B Q4_K - Medium         |   4.58 GiB |     8.03 B | Vulkan     |  99 |           tg128 |         64.76 ± 1.76 |

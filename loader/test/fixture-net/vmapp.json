@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "id": "com.vmapp.nettest",
+  "name": "Net Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run I): it asks to read a folder and to reach two internet addresses, recommends 2 vCPUs and 512 MiB, and exposes fetch() and the VM's size through invoke handlers.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 512,
+    "cpus": 2
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "notes", "access": "read", "purpose": "The notes the app syncs" }
+    ],
+    "dialogs": false,
+    "external": false,
+    "network": [
+      { "host": "api.example.com", "purpose": "Syncs your notes with its service" },
+      { "host": "*.cdn.example.com", "ports": [443, 80], "purpose": "Loads images" }
+    ]
+  }
+}

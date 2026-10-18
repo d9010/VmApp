@@ -1,0 +1,60 @@
+meson: take the MoltenVK/Vulkan include directory from an option, not from Homebrew
+
+Applies to: slp/virglrenderer tag 0.10.4e-krunkit (bfec2d27c3953ee0530c459c2f5d042c2b619fa1).
+
+With -Dvenus=true the fork's meson.build adds
+-I/opt/homebrew/opt/molten-vk/libexec/include to every C compile. The Venus
+headers (src/venus/venus-protocol/vulkan_core.h) include "vk_video/*.h", which
+the fork does not ship, and that directory is where the author's Homebrew
+"molten-vk" formula keeps them. So the build only works on a machine with that
+exact Homebrew layout, and on a machine that has the formula installed it picks
+up whatever version of the headers Homebrew has. The Venus spike worked around
+this with CFLAGS, which leaves the Homebrew path in the compile line.
+
+Add a string option, moltenvk-include-dir (default empty = add nothing), and use
+it instead of the hard-coded path. build-libs.sh passes the include directory
+that belongs to the MoltenVK it just built (Package/Release/MoltenVK/include,
+which has vulkan/ and vk_video/). The build no longer depends on, or looks at,
+/opt/homebrew.
+
+Upstream status: not applicable (macOS-fork-only build logic).
+
+---
+ meson.build       | 5 ++++-
+ meson_options.txt | 7 +++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/meson.build b/meson.build
+index ba4692b..3b2d7aa 100644
+--- a/meson.build
++++ b/meson.build
+@@ -278,7 +278,10 @@ if with_venus
+    endif
+
+    add_project_link_arguments('-lMoltenVK', language : 'c')
+-   add_project_arguments('-I/opt/homebrew/opt/molten-vk/libexec/include', language : 'c')
++   moltenvk_include_dir = get_option('moltenvk-include-dir')
++   if moltenvk_include_dir != ''
++      add_project_arguments('-I' + moltenvk_include_dir, language : 'c')
++   endif
+
+    conf_data.set('ENABLE_VENUS', 1)
+
+diff --git a/meson_options.txt b/meson_options.txt
+index c64cbed..8c72f66 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -52,6 +52,13 @@ option(
+   description : 'enable the validation layer for venus'
+ )
+
++option(
++  'moltenvk-include-dir',
++  type : 'string',
++  value : '',
++  description : 'macOS, with venus: folder with the Vulkan headers that go with MoltenVK (vulkan/, vk_video/)'
++)
++
+ option(
+   'check-gl-errors',
+   type : 'boolean',

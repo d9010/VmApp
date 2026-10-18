@@ -1,0 +1,66 @@
+;; Sandbox profile of the host GPU server (SPEC 8.6, GOVERNANCE INV-H7). Used as:
+;;
+;;   /usr/bin/sandbox-exec -f rpc-server.sb -D BIN=<abs path of rpc-server> -D BINDIR=<its folder> \
+;;       -D PORT=<tcp port> [-D METAL_CACHE=<real path of the user cache folder>] \
+;;       <BIN> --host 127.0.0.1 --port <PORT> --device MTL0
+;;
+;; The server is llama.cpp's RPC server (ggml). Upstream says it is "proof-of-concept ... fragile and insecure": it
+;; trusts the tensors, shapes and graphs a client sends, so a hostile client could try to corrupt its memory. This
+;; profile is the second wall (the first is that the client is an app's VM, reachable only through the loader):
+;;
+;;   - deny by default: no other file is readable, nothing is writable, no process can be started, no signal sent;
+;;   - the network is one loopback TCP port, the one the loader assigned: no outbound connections, no other port;
+;;   - the GPU: only the Metal/IOAccelerator user clients and the shader compiler service;
+;;   - the one exception to "nothing is writable": the user's Metal shader cache (METAL_CACHE, below).
+;;
+;; Parameters (all absolute, real paths: /var is /private/var on macOS):
+;;   BIN          the server executable (the only program that may be executed)
+;;   BINDIR       the folder it lives in (readable, because the ggml loader looks for backend files next to it)
+;;   PORT         the TCP port it binds on 127.0.0.1 (and accepts on)
+;;   METAL_CACHE  optional: the user's cache folder (confstr _CS_DARWIN_USER_CACHE_DIR, without a trailing slash).
+;;                With it the compiled shaders are cached in its com.apple.metal folder (the same cache every Metal
+;;                program of this user shares), so a start takes a fraction of a second; without it, every start
+;;                compiles the ~34 shader libraries again (10 to 15 seconds). That cache is the one place the server
+;;                can write; see docs/SECURITY.md for what this allows.
+(version 1)
+(deny default)
+
+;; Dynamic linking, system libraries and frameworks, the standard sysctls and /dev/null, /dev/urandom ...
+(import "system.sb")
+;; Graphics services every Metal client needs (Apple's own definition in system.sb).
+(system-graphics)
+
+;; The program itself.
+(allow process-exec* (literal (param "BIN")))
+(allow file-read* (literal (param "BIN")))
+(allow file-read* (subpath (param "BINDIR")))
+
+;; Network: listen on 127.0.0.1:PORT and talk to whoever connects. Nothing else (outbound is denied by default).
+(allow network-bind (local tcp (string-append "localhost:" (param "PORT"))))
+(allow network-inbound (local tcp (string-append "localhost:" (param "PORT"))))
+
+;; The GPU (Metal on Apple silicon: AGX). The same list Apple's own sandboxed GPU services use.
+(allow iokit-open
+    (iokit-user-client-class
+        "IOSurfaceRootUserClient"
+        "AGXCommandQueue"
+        "AGXDevice"
+        "AGXDeviceUserClient"
+        "AGXGLContext"
+        "AGXSharedUserClient"
+        "IOAccelContext"
+        "IOAccelContext2"
+        "IOAccelDevice"
+        "IOAccelDevice2"
+        "IOAccelSharedUserClient"
+        "IOAccelSharedUserClient2"
+        "IOAccelSubmitter2"
+        "IOSurfaceAcceleratorClient"))
+(allow iokit-get-properties)
+;; The Metal shader compiler (the server embeds its shaders as source and has them compiled at start).
+(allow mach-lookup (global-name "com.apple.MTLCompilerService"))
+
+;; The compiled-shader cache (optional, see the header).
+(when (param "METAL_CACHE")
+  (allow file-read-metadata (literal (param "METAL_CACHE")))
+  (allow file-read* file-write* (subpath (string-append (param "METAL_CACHE") "/com.apple.metal"))))

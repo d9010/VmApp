@@ -1,0 +1,49 @@
+{
+  "comment": "The curated model list. Every URL is pinned to a commit of the Hugging Face repository (not 'main'), so the file at that URL never changes; sha256 and bytes are those of the file (verified against huggingface.co's own listing on 2026-10-15). A download is stored only if its size and sha256 match. To add a model: add an entry with its exact URL, sha256 and size; the app asks no host beyond huggingface.co and the CDN it redirects to (see vmapp.json).",
+  "models": [
+    {
+      "id": "qwen2.5-0.5b",
+      "name": "Qwen2.5 0.5B Instruct",
+      "quant": "Q4_K_M",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "bytes": 491400032,
+      "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "license": "Apache-2.0",
+      "note": "The smallest one: fast on any Mac, good for trying the app. Simple answers only."
+    },
+    {
+      "id": "llama3.2-1b",
+      "name": "Llama 3.2 1B Instruct",
+      "quant": "Q4_K_M",
+      "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "bytes": 807694464,
+      "sha256": "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
+      "url": "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/067b946cf014b7c697f3654f621d577a3e3afd1c/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+      "license": "Llama 3.2 Community License",
+      "note": "Meta's small Llama (GGUF conversion by bartowski)."
+    },
+    {
+      "id": "qwen2.5-1.5b",
+      "name": "Qwen2.5 1.5B Instruct",
+      "quant": "Q4_K_M",
+      "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "bytes": 1117320736,
+      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "license": "Apache-2.0",
+      "note": "A step up in quality; still comfortable on 4 vCPUs."
+    },
+    {
+      "id": "qwen2.5-7b",
+      "name": "Qwen2.5 7B Instruct",
+      "quant": "Q4_K_M",
+      "file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "bytes": 4683074240,
+      "sha256": "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
+      "url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/8911e8a47f92bac19d6f5c64a2e2095bd2f7d031/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "license": "Apache-2.0",
+      "note": "Real quality, but 4.7 GB: slow on the CPU and bigger than the default VM memory. This is the model the Mac's GPU is for."
+    }
+  ]
+}

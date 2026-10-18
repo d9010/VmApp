@@ -1,0 +1,102 @@
+;; Sandbox profile of the VMM of the EXPERIMENTAL Vulkan backend (SPEC 8.7, GOVERNANCE INV-H8). The VMM is the child
+;; process of `vmapp-vm-krun` (host/src/krun.rs) that runs libkrun, the virtio devices, the Venus decoder (virglrenderer),
+;; MoltenVK and Metal for ONE app's VM. Everything a guest can talk to is parsed in this process, so it runs in this
+;; profile, applied by the process to itself (sandbox_init_with_parameters) before it creates the VM:
+;;
+;;   - deny by default: no network (no inet, no outbound sockets of any kind), no program can be started, no process
+;;     is signalled but itself, nothing outside the files the VM was given can be read, nothing outside its run
+;;     folder, console log and the shares granted read-write can be written;
+;;   - the GPU: only the Metal/IOAccelerator user clients and the shader compiler service;
+;;   - Hypervisor.framework: the process's own entitlement (com.apple.security.hypervisor), nothing here.
+;;
+;; Parameters (all absolute, real paths: /var is /private/var on macOS), set by the launcher from its own command line,
+;; never from an app, a manifest or the guest:
+;;   RUNDIR       the private folder of this VMM: its vsock sockets (the launcher connects to them) and its spec
+;;   CONSOLE      the file the guest console is written to
+;;   EXEDIR       the folder of the VMM executable (vmapp-vm-krun)
+;;   HOME         the user's home folder (only its existence is visible, not its contents)
+;;   RO0..RO15    files and folders the VM may read: the kernel, the initramfs, the runtime and core images, and the
+;;                shares that are read-only
+;;   RW0..RW15    folders the VM may read and write: appdata and the read-write (and write-only staging) shares
+;;   METAL_CACHE  optional: the user's cache folder (confstr _CS_DARWIN_USER_CACHE_DIR, without a trailing slash); its
+;;                com.apple.metal folder holds the compiled shaders every Metal program of this user shares, so a start takes
+;;                a fraction of a second instead of compiling again. It is the one write outside the VM's own files.
+(version 1)
+(deny default)
+
+;; Dynamic linking, system libraries and frameworks, the standard sysctls, /dev/null, /dev/urandom ...
+(import "system.sb")
+;; Graphics services every Metal client needs (Apple's own definition in system.sb).
+(system-graphics)
+
+;; The VMM's own folder and the home folder's existence. Core Foundation looks at the folder of the running executable to find out
+;; whether it is in an app bundle, and at the home folder for preferences; Metal's device discovery (MTLCopyAllDevices ->
+;; IOSurface) dereferences what it finds and crashes the process if it is refused. Nothing in them but our own binary is read.
+(allow file-read* (subpath (param "EXEDIR")))
+(allow file-read-metadata (literal (param "HOME")))
+
+;; The files and folders of this VM.
+(allow file-read* file-write* (subpath (param "RUNDIR")))
+(allow file-read* file-write* (literal (param "CONSOLE")))
+(when (param "RO0") (allow file-read* (subpath (param "RO0"))))
+(when (param "RO1") (allow file-read* (subpath (param "RO1"))))
+(when (param "RO2") (allow file-read* (subpath (param "RO2"))))
+(when (param "RO3") (allow file-read* (subpath (param "RO3"))))
+(when (param "RO4") (allow file-read* (subpath (param "RO4"))))
+(when (param "RO5") (allow file-read* (subpath (param "RO5"))))
+(when (param "RO6") (allow file-read* (subpath (param "RO6"))))
+(when (param "RO7") (allow file-read* (subpath (param "RO7"))))
+(when (param "RO8") (allow file-read* (subpath (param "RO8"))))
+(when (param "RO9") (allow file-read* (subpath (param "RO9"))))
+(when (param "RO10") (allow file-read* (subpath (param "RO10"))))
+(when (param "RO11") (allow file-read* (subpath (param "RO11"))))
+(when (param "RO12") (allow file-read* (subpath (param "RO12"))))
+(when (param "RO13") (allow file-read* (subpath (param "RO13"))))
+(when (param "RO14") (allow file-read* (subpath (param "RO14"))))
+(when (param "RO15") (allow file-read* (subpath (param "RO15"))))
+(when (param "RW0") (allow file-read* file-write* (subpath (param "RW0"))))
+(when (param "RW1") (allow file-read* file-write* (subpath (param "RW1"))))
+(when (param "RW2") (allow file-read* file-write* (subpath (param "RW2"))))
+(when (param "RW3") (allow file-read* file-write* (subpath (param "RW3"))))
+(when (param "RW4") (allow file-read* file-write* (subpath (param "RW4"))))
+(when (param "RW5") (allow file-read* file-write* (subpath (param "RW5"))))
+(when (param "RW6") (allow file-read* file-write* (subpath (param "RW6"))))
+(when (param "RW7") (allow file-read* file-write* (subpath (param "RW7"))))
+(when (param "RW8") (allow file-read* file-write* (subpath (param "RW8"))))
+(when (param "RW9") (allow file-read* file-write* (subpath (param "RW9"))))
+(when (param "RW10") (allow file-read* file-write* (subpath (param "RW10"))))
+(when (param "RW11") (allow file-read* file-write* (subpath (param "RW11"))))
+(when (param "RW12") (allow file-read* file-write* (subpath (param "RW12"))))
+(when (param "RW13") (allow file-read* file-write* (subpath (param "RW13"))))
+(when (param "RW14") (allow file-read* file-write* (subpath (param "RW14"))))
+(when (param "RW15") (allow file-read* file-write* (subpath (param "RW15"))))
+
+;; The vsock ports: libkrun listens on Unix sockets in the run folder and the launcher connects to them. Nothing else.
+(allow network-bind (local unix-socket (subpath (param "RUNDIR"))))
+(allow network-inbound (local unix-socket (subpath (param "RUNDIR"))))
+
+;; The GPU (Metal on Apple silicon: AGX). The same list Apple's own sandboxed GPU services use.
+(allow iokit-open
+    (iokit-user-client-class
+        "IOSurfaceRootUserClient"
+        "AGXCommandQueue"
+        "AGXDevice"
+        "AGXDeviceUserClient"
+        "AGXGLContext"
+        "AGXSharedUserClient"
+        "IOAccelContext"
+        "IOAccelContext2"
+        "IOAccelDevice"
+        "IOAccelDevice2"
+        "IOAccelSharedUserClient"
+        "IOAccelSharedUserClient2"
+        "IOAccelSubmitter2"
+        "IOSurfaceAcceleratorClient"))
+(allow iokit-get-properties)
+;; The Metal shader compiler (MoltenVK translates SPIR-V to Metal source and has it compiled).
+(allow mach-lookup (global-name "com.apple.MTLCompilerService"))
+
+;; The compiled-shader cache (optional, see the header).
+(when (param "METAL_CACHE")
+  (allow file-read-metadata (literal (param "METAL_CACHE")))
+  (allow file-read* file-write* (subpath (string-append (param "METAL_CACHE") "/com.apple.metal"))))

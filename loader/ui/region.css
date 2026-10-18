@@ -1,0 +1,58 @@
+/* "Select a region…": a transparent, full-screen page. Dimmed everywhere except the rectangle being dragged. */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  cursor: crosshair;
+  -webkit-user-select: none;
+  user-select: none;
+  font: 14px/1.3 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+}
+#dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.38);
+}
+#dim[hidden] {
+  display: none;
+}
+/* the rectangle: its huge shadow dims everything around it, the inside stays clear */
+#sel {
+  position: fixed;
+  border: 2px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 100000px rgba(0, 0, 0, 0.38);
+  background: transparent;
+}
+#sel[hidden] {
+  display: none;
+}
+#size {
+  position: absolute;
+  left: 0;
+  top: -26px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#hint {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  pointer-events: none;
+}

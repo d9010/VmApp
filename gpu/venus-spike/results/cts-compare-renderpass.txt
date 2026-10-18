@@ -1,0 +1,33 @@
+native: Fail=246 NotSupported=2973 Pass=1953 
+venus: Fail=109 NotSupported=3275 Pass=1788 
+cases in both: 5172
+outcome differs (native -> venus), summary:
+ 291 Pass -> NotSupported
+ 126 Fail -> Pass
+  11 Fail -> NotSupported
+examples (first 25):
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.a8_unorm.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.a8b8g8r8_unorm_pack32.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r16_sint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r16g16_sint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r16g16b16a16_sint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r32_sint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r32g32b32a32_sfloat.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r8_snorm.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r8g8_uint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.multisample_resolve.r8g8b8a8_uint.max_attachments_8_samples_2  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.complete_secondary_cmd_buff.suballocation.subpass_dependencies.single_attachment.r8g8b8a8_unorm  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.partial_secondary_cmd_buff.suballocation.subpass_dependencies.separate_channels.d32_sfloat_s8_uint  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow.43  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow.57  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow.70  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow.84  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow.98  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow_shrink.20  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow_shrink.34  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow_shrink.61  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.grow_shrink.75  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.roll.11  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.roll.25  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.roll.39  (Pass -> NotSupported)
+  dEQP-VK.renderpasses.dynamic_rendering.primary_cmd_buff.dedicated_allocation.attachment_allocation.roll.52  (Pass -> NotSupported)

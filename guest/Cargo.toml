@@ -1,0 +1,24 @@
+[package]
+name = "vmapp-init"
+version = "0.1.0"
+edition = "2021"
+description = "PID 1 of the D9010 VmApp guest: extracts the app's core.cpio, starts the core and serves the control and bridge vsock ports"
+publish = false
+
+# Standalone package: never a member of a workspace found further up the tree.
+[workspace]
+
+[[bin]]
+name = "vmapp-init"
+path = "src/main.rs"
+
+[dependencies]
+# Same pinned version agent-vm's guest uses.
+libc = "=0.2.190"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

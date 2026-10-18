@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Checks what you need for the part of D9010 VmApp you want to work on, and prints the exact command for anything that is
+# missing. It only looks: it installs nothing and changes nothing (apart from a few empty temporary folders it removes again).
+#
+#   bash tools/doctor                 list the parts
+#   bash tools/doctor launcher        one part
+#   bash tools/doctor kernel vm       several
+#   bash tools/doctor all
+#
+# The parts, and why they differ (README, "Contributing: set up only the part you work on"):
+#   launcher  the D9010 VmApp Launcher (loader/), host library, SDK, CLI, registry, docs: Node.js 22 only
+#   kernel    the guest Linux kernel (kernel/): Docker only, to build it
+#   vm        the VM launcher (host/), the VM init (guest/), the runtimes and the real-VM tests: Mac, Xcode tools, Rust, Node, Docker
+#   apps      apps and the examples: Node.js 22; each example adds what its language needs
+#   gpu       the experimental GPU support (gpu/): cmake, git, Xcode tools
+#
+# Exit status: 0 when everything the chosen parts need is there, 1 otherwise.
+set -u
+
+VMAPP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FAILS=0
+
+say() { printf '%s\n' "$*"; }
+ok() { printf '  ok        %s\n' "$*"; }
+info() { printf '  note      %s\n' "$*"; }
+optional() { printf '  optional  %s\n' "$*"; }
+missing() { # missing WHAT FIXLINE...: a need that is not met, and the commands that meet it
+  FAILS=$((FAILS + 1))
+  printf '  MISSING   %s\n' "$1"
+  shift
+  for line in "$@"; do printf '            $ %s\n' "$line"; done
+}
+
+check_macos() { # check_macos required|optional
+  if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
+    ok "a Mac with Apple silicon (macOS $(sw_vers -productVersion 2> /dev/null || echo '?'))"
+  elif [ "$1" = required ]; then
+    FAILS=$((FAILS + 1))
+    printf '  MISSING   a Mac with Apple silicon, macOS 13 or later (virtual machines run only there; this is %s %s)\n' "$(uname -s)" "$(uname -m)"
+  else
+    optional "a Mac with Apple silicon, only to run the launcher and VMs (this is $(uname -s) $(uname -m)); the tests of this part run anywhere"
+  fi
+}
+
+check_node() {
+  local v
+  v="$(node -p 'process.versions.node' 2> /dev/null || true)"
+  case "$v" in
+    22.*) ok "Node.js $v" ;;
+    "") missing "Node.js 22" "brew install node@22" "echo 'export PATH=\"/opt/homebrew/opt/node@22/bin:\$PATH\"' >> ~/.zshrc   # then open a new terminal" ;;
+    *) missing "Node.js 22 (found $v)" "brew install node@22" "echo 'export PATH=\"/opt/homebrew/opt/node@22/bin:\$PATH\"' >> ~/.zshrc   # then open a new terminal" ;;
+  esac
+}
+
+check_git() {
+  if command -v git > /dev/null 2>&1; then ok "git $(git --version | sed 's/git version //')"; else missing "git" "xcode-select --install"; fi
+}
+
+check_xcode() {
+  if xcode-select -p > /dev/null 2>&1 && command -v clang > /dev/null 2>&1 && command -v codesign > /dev/null 2>&1; then
+    ok "Xcode command-line tools (clang, codesign)"
+  else
+    missing "Xcode command-line tools" "xcode-select --install"
+  fi
+}
+
+check_cmake() { # check_cmake required|optional
+  if command -v cmake > /dev/null 2>&1; then ok "cmake $(cmake --version | head -1 | sed 's/cmake version //')"
+  elif [ "$1" = required ]; then missing "cmake" "brew install cmake"
+  else optional "cmake, to build the GPU server (without it tools/build.sh skips it with a hint): brew install cmake"; fi
+}
+
+check_docker() { # check_docker WHY
+  if ! command -v docker > /dev/null 2>&1; then
+    missing "Docker, $1" "brew install --cask docker" "open -a Docker   # start it once and wait until it says it is running"
+  elif ! docker info > /dev/null 2>&1; then
+    missing "Docker is installed but not running, $1" "open -a Docker   # and wait until it says it is running"
+  elif ! docker buildx version > /dev/null 2>&1; then
+    missing "Docker buildx, $1" "docker buildx install   # or update Docker Desktop"
+  else
+    ok "Docker $(docker --version | sed 's/Docker version //; s/,.*//'), engine \"$(docker info --format '{{.Name}}' 2> /dev/null)\"${DOCKER_HOST:+ via $DOCKER_HOST} (running, buildx present)"
+  fi
+}
+
+check_rust() {
+  local tmp out
+  tmp="$(mktemp -d)"
+  # tools/lib/rust-env.sh is what the build scripts use to find the toolchain; its scratch folders go to a temporary place here
+  if out="$( (VMAPP="$VMAPP" VMAPP_WORK="$tmp" CARGO_TARGET_DIR="$tmp/target"; . "$VMAPP/tools/lib/rust-env.sh"; vmapp_rust_env; echo "$VMAPP_TOOLCHAIN_NOTE") 2>&1)"; then
+    ok "Rust with the aarch64-unknown-linux-musl target and its linker ($(printf '%s' "$out" | tail -1))"
+  else
+    missing "Rust with the aarch64-unknown-linux-musl target" \
+      "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0" \
+      ". \"\$HOME/.cargo/env\" && rustup target add aarch64-unknown-linux-musl"
+    info "$(printf '%s' "$out" | head -1)"
+    info "a toolchain installed elsewhere works too: export RUSTUP_HOME=<its rustup> CARGO_HOME=<its cargo>"
+  fi
+  rm -rf "$tmp"
+}
+
+check_disk() { # check_disk GB
+  local avail
+  avail="$(df -k "$VMAPP" | awk 'NR==2 {printf "%d", $4 / 1048576}')"
+  if [ "$avail" -ge "$1" ]; then ok "free disk on the volume that holds this repository: $avail GB (about $1 GB recommended)"
+  else FAILS=$((FAILS + 1)); printf '  MISSING   free disk on the volume that holds this repository: %s GB, about %s GB recommended\n' "$avail" "$1"; fi
+}
+
+next() { say "  then:"; for line in "$@"; do printf '            $ %s\n' "$line"; done; }
+
+part_launcher() {
+  say "launcher: the D9010 VmApp Launcher (loader/), host library, SDK, CLI, registry and docs"
+  check_node
+  check_git
+  check_disk 1
+  check_macos optional
+  next "node --test tests/unit/ tests/invariants/ tests/registry/   # no VM, no Docker, no Rust needed" \
+    "(cd loader && npm ci && npm start)   # the first start downloads Electron; running apps also needs the vm part built"
+}
+part_kernel() {
+  say "kernel: the guest Linux kernel (kernel/)"
+  check_docker "to build the kernel (never needed to run it)"
+  check_disk 5
+  info "the first build downloads the Linux source (checksum and signature checked); no Rust or Node is needed to build it"
+  info "no Docker? use a kernel someone built: tools/build.sh --kernel-from /path/to/Image (kernel/build.sh --from does the same for the kernel alone)"
+  info "which engine is this? Docker Desktop prints docker-desktop; the Lima engine in docs/TOOLCHAIN.md prints lima-vd"
+  next "kernel/build.sh --check-pins   # fast: validates the pinned versions" \
+    "kernel/build.sh   # 1 to 4 minutes; then boot it: VMAPP_KERNEL=out/Image tests/e2e.sh (needs the vm part built)"
+}
+part_vm() {
+  say "vm: the VM launcher (host/), the VM init (guest/), the runtimes and the real-VM tests"
+  check_macos required
+  check_xcode
+  check_rust
+  check_node
+  check_docker "for the kernel and the runtime images"
+  check_git
+  check_cmake optional
+  check_disk 6
+  next "tools/build.sh   # launcher, init, initramfs, kernel (add --no-gpu to skip the GPU server)" \
+    "tools/mkruntime runtimes/native out/runtimes/native.img && tests/e2e.sh"
+}
+part_apps() {
+  say "apps: building apps on the platform, the SDK, the starter template and the examples"
+  check_node
+  check_git
+  check_disk 10
+  info "to run an app you need the platform built (the vm part) or a built launcher"
+  info "per example: the Rust sample needs Rust (the vm part); the .NET sample, Ollama, local LLM and VS Code need Docker; VS Code needs about 25 GB free"
+  next "tools/vmapp new my-app --id com.you.myapp   # then docs/BUILDING-APPS.md"
+}
+part_gpu() {
+  say "gpu: the experimental GPU support (gpu/)"
+  check_macos required
+  check_xcode
+  check_git
+  check_cmake required
+  check_disk 6
+  info "the experimental Vulkan backend (tools/build.sh --with-krun) also needs Docker"
+  next "gpu/build.sh --check   # see gpu/README.md"
+}
+
+usage() {
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
+}
+
+[ $# -gt 0 ] || { usage; exit 0; }
+parts=()
+for a in "$@"; do
+  case "$a" in
+    all) parts+=(launcher kernel vm apps gpu) ;;
+    launcher | kernel | vm | apps | gpu) parts+=("$a") ;;
+    -h | --help) usage; exit 0 ;;
+    *) say "doctor: unknown part '$a' (launcher, kernel, vm, apps, gpu, all)" >&2; exit 2 ;;
+  esac
+done
+for p in "${parts[@]}"; do
+  say
+  "part_$p"
+done
+say
+if [ "$FAILS" -eq 0 ]; then say "All set for: ${parts[*]}"; else say "$FAILS thing(s) missing for: ${parts[*]}. Run the commands above, then run this again."; fi
+[ "$FAILS" -eq 0 ]

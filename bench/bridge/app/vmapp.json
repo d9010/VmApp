@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "dev.bench.bridge",
+  "name": "Bridge Bench",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp benchmarks",
+  "description": "Measures bridge round trips between the host and an app core in its VM (bench/bridge). Does nothing else.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": false,
+    "external": false
+  }
+}

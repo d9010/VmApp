@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "id": "com.example.starter",
+  "name": "Starter",
+  "version": "1.0.0",
+  "publisher": "Your Name",
+  "description": "A tiny D9010 VmApp that shows every concept once. Copy it with: vmapp new my-app",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "documents", "access": "read", "purpose": "Lets the Starter list the files in your Documents folder" }
+    ],
+    "dialogs": true,
+    "external": true
+  }
+}

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Particles</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage"><canvas id="view" aria-label="Particle simulation, drawn on the GPU"></canvas></div>
+
+  <button id="toggle-panels" class="chip" type="button" aria-controls="gfx core" aria-expanded="true" title="Show or hide the panels (H)">Hide panels</button>
+
+  <aside id="gfx" class="panel" aria-label="Graphics on the host GPU">
+    <header>
+      <h1>Particles</h1>
+      <span id="api-badge" class="badge pending" role="status">starting&hellip;</span>
+    </header>
+    <p class="sub">Drawn by the Mac&rsquo;s GPU in this window. The scene below comes from the VM.</p>
+
+    <div class="big">
+      <div><span id="fps" class="num">&ndash;</span><span class="unit">fps</span></div>
+      <div class="small"><span id="frame-ms">&ndash;</span> ms/frame<span id="gpu-ms-wrap" hidden> &middot; GPU <span id="gpu-ms"></span> ms</span></div>
+    </div>
+
+    <dl class="kv" id="adapter">
+      <dt>Renderer</dt><dd id="r-api">&ndash;</dd>
+      <dt>Adapter</dt><dd id="r-adapter">&ndash;</dd>
+      <dt>Detail</dt><dd id="r-detail">&ndash;</dd>
+    </dl>
+    <p id="fallback-reason" class="note warn" hidden></p>
+
+    <div class="field">
+      <label for="count">Particles <output id="count-out" for="count">1,000,000</output></label>
+      <input id="count" type="range" min="0" max="100" step="0.1" value="86.9">
+      <div class="quick" role="group" aria-label="Particle count presets">
+        <button type="button" data-count="100000">100k</button>
+        <button type="button" data-count="500000">500k</button>
+        <button type="button" data-count="1000000">1M</button>
+        <button type="button" data-count="2000000">2M</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="trails">Trails <output id="trails-out" for="trails">0.85</output></label>
+      <input id="trails" type="range" min="0" max="0.95" step="0.01" value="0.85">
+    </div>
+    <div class="row">
+      <label class="check"><input id="orbit" type="checkbox" checked> Orbit camera</label>
+      <label class="sel">API
+        <select id="api-select">
+          <option value="auto">Auto</option>
+          <option value="webgpu">WebGPU</option>
+          <option value="webgl2">WebGL2</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="gpu-bench" type="button">GPU benchmark</button>
+      <span id="gpu-bench-out" class="result" aria-live="polite"></span>
+    </div>
+  </aside>
+
+  <aside id="core" class="panel" aria-label="Scene in the VM">
+    <header>
+      <h2>Scene</h2>
+      <span class="badge vm" title="This part runs inside the sandboxed virtual machine">in the VM</span>
+    </header>
+    <dl class="kv">
+      <dt>Core</dt><dd id="c-where">&ndash;</dd>
+      <dt>Stream</dt><dd id="c-stream">&ndash;</dd>
+      <dt>Round trip</dt><dd id="c-rtt">&ndash;</dd>
+      <dt>Sim state</dt><dd id="c-sim">&ndash;</dd>
+    </dl>
+
+    <div class="field">
+      <label for="preset">Preset <span id="modified" class="muted" hidden>(modified)</span></label>
+      <div class="row tight">
+        <select id="preset"></select>
+        <button id="preset-delete" type="button" title="Delete this saved preset">Delete</button>
+      </div>
+      <div class="row tight">
+        <input id="preset-name" type="text" maxlength="40" placeholder="Save as&hellip;" aria-label="Name for a new preset" autocomplete="off" spellcheck="false">
+        <button id="preset-save" type="button">Save</button>
+      </div>
+      <p id="preset-msg" class="note" hidden></p>
+    </div>
+
+    <div id="params" class="params"></div>
+
+    <div class="row">
+      <button id="pause" type="button">Pause</button>
+      <button id="reset" type="button">Restart</button>
+      <button id="reseed" type="button">New orbit</button>
+      <label class="sel">Rate
+        <select id="hz">
+          <option value="10">10 Hz</option>
+          <option value="30" selected>30 Hz</option>
+          <option value="60">60 Hz</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="cpu-bench" type="button">CPU benchmark (VM)</button>
+      <span id="cpu-bench-out" class="result" aria-live="polite"></span>
+    </div>
+  </aside>
+
+  <footer id="help">Drag: attract &middot; Shift or right-drag: repel &middot; Wheel: zoom &middot; Space: pause &middot; H: panels</footer>
+
+  <script src="math.js"></script>
+  <script src="webgpu.js"></script>
+  <script src="webgl2.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

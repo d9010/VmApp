@@ -1,0 +1,44 @@
+From: vmapp <vmapp@example.invalid>
+Subject: [PATCH 4/4] ui: "No thanks, I'll use Ollama locally" goes to the chat, not to the "Run Ollama" screen
+
+First run: Welcome > "Create an account" > "No thanks, I'll use Ollama locally" saves the onboarding as done and shows a last screen, "Run Ollama",
+with a command to copy into a terminal. In the desktop app that screen is not a dead end because the tray icon stays: the user opens the
+chat from it. A window without a tray (a vmapp window) has nothing to go on with: no button, no link, no navigation, until the app is
+started again. This sends the user to the chat (route "/") as soon as the choice is saved, which is where the tray would have taken them.
+The other way out of onboarding (signing in) is unchanged, and so is the rest of the first-run flow.
+
+---
+ app/ui/app/src/components/Onboarding.tsx | 3 +--
+ app/ui/app/src/routes/onboarding.tsx     | 7 +++++--
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/app/ui/app/src/components/Onboarding.tsx b/app/ui/app/src/components/Onboarding.tsx
+--- a/app/ui/app/src/components/Onboarding.tsx
++++ b/app/ui/app/src/components/Onboarding.tsx
+@@ -1274,8 +1274,7 @@ export default function Onboarding(props: OnboardingProps) {
+       onRetryCompletion={() => void leave()}
+       onLocal={() => {
+         if (leavingRef.current) return;
+-        props.onUseLocal();
+-        setStep("run");
++        props.onUseLocal(); // saves the choice and goes to the chat; no "Run Ollama" step
+       }}
+     />
+   );
+diff --git a/app/ui/app/src/routes/onboarding.tsx b/app/ui/app/src/routes/onboarding.tsx
+--- a/app/ui/app/src/routes/onboarding.tsx
++++ b/app/ui/app/src/routes/onboarding.tsx
+@@ -88,8 +88,11 @@ function OnboardingRoute() {
+   }, [setSettings, settingsData]);
+
+   const finishSetup = useCallback(() => {
+-    void completeOnboarding();
+-  }, [completeOnboarding]);
++    // The desktop app stays on the "Run Ollama" screen here and the user goes on from the tray. A window without a tray goes to the chat.
++    void completeOnboarding().then((done) => {
++      if (done) void navigate({ to: "/" });
++    });
++  }, [completeOnboarding, navigate]);
+
+   const openApps = useCallback(async (): Promise<boolean> => {
+     if (!(await completeOnboarding())) return false;

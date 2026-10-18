@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "com.vmapp.mictest",
+  "name": "Mic Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test (run G): its manifest asks to use the microphone. Its page does nothing by itself; the test calls getUserMedia in it.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": false,
+    "external": false,
+    "devices": [
+      { "device": "microphone", "purpose": "Records a voice note when you press the button" }
+    ]
+  }
+}

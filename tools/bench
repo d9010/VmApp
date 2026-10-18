@@ -1,0 +1,739 @@
+#!/usr/bin/env node
+'use strict';
+// tools/bench: reproduces the performance numbers of the README ("By the numbers") on this Mac. See docs/BENCHMARKS.md.
+//
+//   tools/bench boot|bridge|llm|vulkan|all [--json] [--runs N] [--models a,b] [--skip-missing]
+//
+// It prints a table with medians, p95 (or min and max), the machine, the load and the exact versions and pins used, and writes the
+// same, in full, to $VMAPP_WORK/bench/<timestamp>.json. Progress goes to stderr, so `--json` leaves a clean JSON document on stdout.
+// Exit status: 0 all good, 1 a benchmark failed, 2 a prerequisite is missing or the usage is wrong (the message names the command
+// that fixes it).
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const cp = require('child_process');
+const crypto = require('crypto');
+
+const ROOT = path.resolve(path.dirname(fs.realpathSync(__filename)), '..');
+const { summarize, round } = require(path.join(ROOT, 'bench', 'lib', 'stats.js'));
+
+const OUT = path.join(ROOT, 'out');
+const WORK = path.resolve(process.env.VMAPP_WORK || path.join(OUT, 'work'));
+const BENCH = path.join(WORK, 'bench');
+const BENCH_HOME = path.resolve(process.env.BENCH_HOME || path.join(BENCH, 'home')); // never the user's own VMAPP_HOME
+const GS = path.resolve(process.env.VMAPP_GS_WORK || path.join(OUT, 'work-gs')); // the Venus spike build (gpu/venus-spike/BUILD.md)
+const MODEL_CACHE = path.resolve(process.env.BENCH_MODEL_CACHE || path.join(WORK, 'cache', 'models'));
+const MODEL_DIRS = (process.env.BENCH_MODEL_DIRS || '').split(':').filter(Boolean).map((d) => path.resolve(d)); // read-only extra places to look
+
+const NAMES = ['boot', 'bridge', 'llm', 'vulkan'];
+const DEFAULT_RUNS = { boot: 20, bridge: 5, llm: 5, vulkan: 3 };
+const BRIDGE_APP = 'dev.bench.bridge';
+const LLM_APP = 'dev.vmapp.localllm';
+
+const USAGE = `usage: tools/bench <boot|bridge|llm|vulkan|all> [options]
+
+  boot      VM start: spawn -> vmapp-vm ready, spawn -> the core's first message, VM memory, kill -9 of the parent -> VM gone
+  bridge    UI <-> VM bridge: round-trip latency, calls per second, bulk MiB/s, core -> UI messages per second
+  llm       Local LLM in the VM: tokens per second on the VM's CPU against the Mac's GPU over RPC (Qwen2.5 7B by default)
+  vulkan    Vulkan from the VM through the Venus spike (vkpeak, llama-bench) against the same Mac natively (needs the spike build)
+  all       all of the above, one after the other (never in parallel: they would disturb each other)
+
+options:
+  --json            print the full result as JSON on stdout instead of the table
+  --runs N          repetitions (defaults: boot 20 VM starts, bridge 5 rounds, llm 5 runs of each kind, vulkan 3 llama-bench repetitions)
+  --models a,b      llm only: catalog ids of apps/local-llm/core/models.json to measure (default qwen2.5-7b; qwen2.5-0.5b is quick)
+  --skip-missing    with 'all': skip the benchmarks whose prerequisites are missing instead of stopping (exit status 0 if the rest pass)
+  --check           only check the prerequisites and print what is missing
+  -h, --help        this text
+
+environment:
+  VMAPP_WORK        scratch folder (default out/work); results are in $VMAPP_WORK/bench/<timestamp>.json, the VMs' data in $VMAPP_WORK/bench/home
+  BENCH_MODEL_CACHE where downloaded models are kept (default $VMAPP_WORK/cache/models)
+  BENCH_MODEL_DIRS  extra folders (colon separated, read-only) searched for an already downloaded model before downloading
+  VMAPP_GS_WORK     the Venus spike build for 'vulkan' (default out/work-gs)
+`;
+
+class Usage extends Error {}
+
+// ------------------------------------------------------------------------------------------------------------------ small helpers
+const log = (m) => process.stderr.write(`${m}\n`);
+const rel = (p) => (p.startsWith(ROOT + path.sep) ? path.relative(ROOT, p) : p);
+function sh(cmd, args, opts = {}) {
+  try {
+    return cp.execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], ...opts }).trim();
+  } catch {
+    return null;
+  }
+}
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    fs.createReadStream(file, { highWaterMark: 4 << 20 })
+      .on('data', (d) => h.update(d))
+      .on('end', () => resolve(h.digest('hex')))
+      .on('error', reject);
+  });
+}
+function parseEnvFile(file) {
+  const out = {};
+  for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
+    const m = /^([A-Z0-9_]+)=(.*)$/.exec(l);
+    if (m) out[m[1]] = m[2].trim();
+  }
+  return out;
+}
+const num = (x, d = 0) => (x === null || x === undefined || Number.isNaN(x) ? 'n/a' : Number(x).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const MB = (b) => `${(b / 1e6).toFixed(1)} MB`;
+const KB = (b) => `${Math.round(b / 1000)} KB`;
+const rs = (s, d) => (s ? Object.fromEntries(Object.entries(s).map(([k, v]) => [k, k === 'n' ? v : round(v, d)])) : null);
+
+// ---------------------------------------------------------------------------------------------------------------- arguments
+function parseArgs(argv) {
+  const o = { names: [], json: false, runs: null, models: null, skipMissing: false, check: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '-h' || a === '--help') {
+      process.stdout.write(USAGE);
+      process.exit(0);
+    } else if (a === '--json') o.json = true;
+    else if (a === '--skip-missing') o.skipMissing = true;
+    else if (a === '--check') o.check = true;
+    else if (a === '--runs' || a.startsWith('--runs=')) {
+      const v = a.includes('=') ? a.split('=')[1] : argv[++i];
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > 1000) throw new Usage(`--runs needs a whole number from 1 to 1000, not ${JSON.stringify(v)}`);
+      o.runs = n;
+    } else if (a === '--models' || a.startsWith('--models=')) {
+      o.models = (a.includes('=') ? a.split('=')[1] : argv[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
+      if (!o.models.length) throw new Usage('--models needs a comma separated list of catalog ids');
+    } else if (a === 'all') o.names.push(...NAMES);
+    else if (NAMES.includes(a)) o.names.push(a);
+    else throw new Usage(`unknown argument ${JSON.stringify(a)}`);
+  }
+  if (!o.names.length) throw new Usage('say what to run: boot, bridge, llm, vulkan or all');
+  o.names = NAMES.filter((n) => o.names.includes(n)); // fixed order: the quiet ones first, the GPU ones last
+  return o;
+}
+
+// ------------------------------------------------------------------------------------------------------------ machine and versions
+function machineInfo() {
+  const sysctl = (k) => sh('sysctl', ['-n', k]);
+  return {
+    chip: sysctl('machdep.cpu.brand_string'),
+    model: sysctl('hw.model'),
+    logicalCpus: Number(sysctl('hw.ncpu')),
+    performanceCores: Number(sysctl('hw.perflevel0.logicalcpu')) || null,
+    efficiencyCores: Number(sysctl('hw.perflevel1.logicalcpu')) || null,
+    ramGiB: Math.round(Number(sysctl('hw.memsize')) / 2 ** 30),
+    macos: `${sh('sw_vers', ['-productVersion'])} (${sh('sw_vers', ['-buildVersion'])})`,
+    arch: os.arch(),
+    node: process.version,
+  };
+}
+function loadNow() {
+  return os.loadavg().map((x) => round(x, 2));
+}
+/** macOS' own "System-wide memory free percentage" (memory_pressure -Q); low values mean the Mac is short of memory. */
+function memoryFreePercent() {
+  const m = /free percentage:\s*(\d+)%/.exec(sh('memory_pressure', ['-Q']) || '');
+  return m ? Number(m[1]) : null;
+}
+function vmappInfo() {
+  const commit = sh('git', ['-C', ROOT, 'rev-parse', '--short', 'HEAD']);
+  const dirty = (sh('git', ['-C', ROOT, 'status', '--porcelain', '--', '.']) || '').split('\n').filter(Boolean).length;
+  const info = { commit, uncommittedFiles: dirty };
+  const vm = process.env.VMAPP_VM || path.join(OUT, 'vmapp-vm');
+  const kernel = process.env.VMAPP_KERNEL || path.join(OUT, 'Image');
+  const initramfs = process.env.VMAPP_INITRAMFS || path.join(OUT, 'initramfs.cpio');
+  try {
+    // the host library the bridge benchmark runs through: a hash of its sources tells two runs apart even when the commit is the same
+    const h = crypto.createHash('sha256');
+    for (const f of fs.readdirSync(path.join(ROOT, 'hostlib')).filter((n) => n.endsWith('.js')).sort()) h.update(fs.readFileSync(path.join(ROOT, 'hostlib', f)));
+    info.hostlibSha256 = h.digest('hex').slice(0, 16);
+  } catch {
+    info.hostlibSha256 = null;
+  }
+  try {
+    const buf = fs.readFileSync(vm);
+    info.vmappVm = { bytes: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16), modified: fs.statSync(vm).mtime.toISOString() };
+  } catch {
+    info.vmappVm = null;
+  }
+  try {
+    info.kernel = { release: fs.existsSync(path.join(OUT, 'kernel.release')) ? fs.readFileSync(path.join(OUT, 'kernel.release'), 'utf8').trim() : null, bytes: fs.statSync(kernel).size };
+  } catch {
+    info.kernel = null;
+  }
+  try {
+    info.init = { bytes: cpioEntrySize(fs.readFileSync(initramfs), 'init'), initramfsBytes: fs.statSync(initramfs).size };
+  } catch {
+    info.init = null;
+  }
+  return info;
+}
+/** Size of one entry of a "newc" cpio archive (the initramfs also holds device nodes, which hostlib's strict reader refuses). */
+function cpioEntrySize(buf, name) {
+  const pad4 = (n) => (4 - (n % 4)) % 4;
+  let off = 0;
+  while (off + 110 <= buf.length && buf.toString('latin1', off, off + 6) === '070701') {
+    const field = (i) => parseInt(buf.toString('latin1', off + 6 + i * 8, off + 14 + i * 8), 16);
+    const size = field(6);
+    const nameSize = field(11);
+    const entry = buf.toString('utf8', off + 110, off + 110 + nameSize - 1);
+    if (entry === name) return size;
+    if (entry === 'TRAILER!!!') break;
+    off += 110 + nameSize + pad4(110 + nameSize) + size + pad4(size);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------- prerequisites
+const BUILT = [
+  [path.join(OUT, 'vmapp-vm'), 'tools/build.sh'],
+  [path.join(OUT, 'Image'), 'tools/build.sh'],
+  [path.join(OUT, 'initramfs.cpio'), 'tools/build.sh'],
+];
+const NODE22 = [path.join(OUT, 'runtimes', 'node22.img'), 'tools/mkruntime runtimes/node22 out/runtimes/node22.img   (needs Docker)'];
+const NATIVE = [path.join(OUT, 'runtimes', 'native.img'), 'tools/mkruntime runtimes/native out/runtimes/native.img   (needs Docker)'];
+
+function prerequisites(name) {
+  const missing = [];
+  const need = ([file, fix]) => {
+    if (!fs.existsSync(file)) missing.push({ what: rel(file), fix });
+  };
+  const tool = (t, fix) => {
+    if (!sh('which', [t])) missing.push({ what: `${t} (command)`, fix });
+  };
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') missing.push({ what: 'an Apple-silicon Mac running macOS', fix: 'these benchmarks measure Virtualization.framework / Metal; run them on a Mac with Apple silicon' });
+  if (Number(process.versions.node.split('.')[0]) < 22) missing.push({ what: `Node.js 22 or newer (this is ${process.version})`, fix: 'install Node.js 22 (nvm install 22)' });
+  if (name === 'boot') {
+    BUILT.forEach(need);
+    need(NODE22);
+    need(NATIVE);
+    need([path.join(OUT, 'test', 'core-echo.cpio'), 'tools/build.sh']);
+  } else if (name === 'bridge') {
+    BUILT.forEach(need);
+    need(NODE22);
+  } else if (name === 'llm') {
+    BUILT.forEach(need);
+    need(NODE22);
+    need([path.join(ROOT, 'apps', 'local-llm', 'core', 'bin', 'llama-server'), 'apps/local-llm/build.sh   (needs Docker)']);
+    need([path.join(OUT, 'gpu', 'rpc-server'), 'tools/build.sh   (or gpu/build.sh; needs cmake and the Xcode command-line tools)']);
+    need([path.join(OUT, 'gpu', 'rpc-server.sb'), 'tools/build.sh   (or gpu/build.sh)']);
+    tool('curl', 'curl ships with macOS');
+    tool('shasum', 'shasum ships with macOS');
+  } else if (name === 'vulkan') {
+    const spike = [
+      [path.join(GS, 'bin', 'spike-vm'), 'the spike launcher'],
+      [path.join(GS, 'kernel-gs', 'out', 'Image'), 'gpu/venus-spike/kernel/build.sh'],
+      [path.join(GS, 'guest', 'rootfs.ext4'), 'gpu/venus-spike/guest/build-rootfs.sh'],
+      [path.join(GS, 'prefix', 'lib', 'libkrun.1.dylib'), 'libkrun (BUILD.md, host stack)'],
+      [path.join(GS, 'prefix', 'lib', 'libvirglrenderer.1.dylib'), 'virglrenderer (BUILD.md, host stack)'],
+      [path.join(GS, 'prefix', 'lib', 'libMoltenVK.dylib'), 'MoltenVK (BUILD.md, host stack)'],
+      [path.join(GS, 'build', 'llama-metal', 'bin', 'llama-bench'), 'native llama.cpp on Metal (BUILD.md, "Host tools used for baselines")'],
+      [path.join(GS, 'build', 'llama-vk', 'bin', 'llama-bench'), 'native llama.cpp on MoltenVK (BUILD.md, "Host tools used for baselines")'],
+      [path.join(GS, 'build', 'vkpeak', 'vkpeak'), 'native vkpeak (BUILD.md, "Host tools used for baselines")'],
+    ];
+    const gone = spike.filter(([file]) => !fs.existsSync(file));
+    if (gone.length) {
+      missing.push({
+        what: `the Venus spike build in ${GS}: ${gone.length} of ${spike.length} files missing (${gone.map(([f, w]) => `${path.relative(GS, f)} <- ${w}`).join('; ')})`,
+        fix: `build the Venus spike: follow gpu/venus-spike/BUILD.md with VMAPP_WORK=${GS} (short version: bench/vulkan/README.md); or point VMAPP_GS_WORK at an existing build`,
+      });
+    }
+    tool('curl', 'curl ships with macOS');
+    tool('shasum', 'shasum ships with macOS');
+  }
+  return missing;
+}
+
+// -------------------------------------------------------------------------------------------------------------- running things
+const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+function benchEnv(extra) {
+  return { ...process.env, VMAPP_WORK: WORK, VMAPP_HOME: BENCH_HOME, ...extra };
+}
+function vmappCli(args, { allowFail = false } = {}) {
+  const r = cp.spawnSync(path.join(ROOT, 'tools', 'vmapp'), args, { env: benchEnv(), encoding: 'utf8' });
+  if (r.status !== 0 && !allowFail) throw new Error(`tools/vmapp ${args.join(' ')} failed (${r.status}): ${(r.stderr || r.stdout || '').trim().slice(0, 400)}`);
+  return r;
+}
+/** Runs a command, writes everything it prints to a log file, and shows its `BENCH ...` lines on stderr as progress. */
+function run(cmd, args, { env, logFile, tag }) {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const fd = fs.openSync(logFile, 'a');
+  return new Promise((resolve) => {
+    const child = cp.spawn(cmd, args, { env: env || benchEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const tail = [];
+    let buf = '';
+    const onData = (d) => {
+      fs.writeSync(fd, d);
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        tail.push(line);
+        if (tail.length > 40) tail.shift();
+        if (line.startsWith('BENCH ')) log(`  [${tag}] ${line.slice(6)}`);
+        else if (/^\[run\] failed|^FAILED|^bench\/vulkan:|^== /.test(line)) log(`  [${tag}] ${line}`);
+      }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    let done = false;
+    const finish = (code) => {
+      if (done) return;
+      done = true;
+      fs.closeSync(fd);
+      resolve({ code, tail });
+    };
+    child.on('error', (e) => {
+      tail.push(`cannot run ${cmd}: ${e.message}`);
+      finish(-1);
+    });
+    child.on('close', (code) => finish(code));
+  });
+}
+function fileEq(a, b) {
+  return cp.spawnSync('cmp', ['-s', a, b]).status === 0;
+}
+function ensureRuntime(name) {
+  const built = path.join(OUT, 'runtimes', `${name}.img`);
+  const installed = path.join(BENCH_HOME, 'runtimes', `${name}.img`);
+  if (!(fs.existsSync(installed) && fileEq(built, installed))) vmappCli(['runtime-install', name, built]);
+}
+function installApp(dir, pkgName) {
+  const pkg = path.join(BENCH, 'pkgs', `${pkgName}.vmapp`);
+  vmappCli(['pack', dir, '-o', pkg]);
+  vmappCli(['install', pkg, '--force']);
+  return pkg;
+}
+function staticSizes() {
+  const sizes = {};
+  try {
+    const notes = path.join(BENCH, 'pkgs', 'notes.vmapp');
+    vmappCli(['pack', path.join(ROOT, 'apps', 'notes'), '-o', notes]);
+    sizes.notesPackageBytes = fs.statSync(notes).size;
+  } catch (e) {
+    sizes.notesPackageError = e.message;
+  }
+  return sizes;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------- boot
+async function benchBoot(o) {
+  const runs = o.runs || DEFAULT_RUNS.boot;
+  ensureRuntime('node22');
+  installApp(path.join(ROOT, 'bench', 'bridge', 'app'), 'bridge');
+  const results = path.join(BENCH, 'tmp', `boot-${stamp()}.json`);
+  const r = await run(process.execPath, [path.join(ROOT, 'bench', 'boot', 'boot.mjs')], {
+    env: benchEnv({ BENCH_RUNS: String(runs), BENCH_RESULTS: results, BENCH_APP_ID: BRIDGE_APP }),
+    logFile: path.join(BENCH, 'logs', `boot-${stamp()}.log`),
+    tag: 'boot',
+  });
+  if (r.code !== 0 || !fs.existsSync(results)) throw new Error(`bench/boot/boot.mjs failed (${r.code}):\n${r.tail.slice(-12).join('\n')}`);
+  const data = readJson(results);
+  data.sizes = { ...staticSizes() };
+  return data;
+}
+
+// -------------------------------------------------------------------------------------------------------------------- bridge
+async function benchBridge(o) {
+  const runs = o.runs || DEFAULT_RUNS.bridge;
+  ensureRuntime('node22');
+  installApp(path.join(ROOT, 'bench', 'bridge', 'app'), 'bridge');
+  const results = path.join(BENCH, 'tmp', `bridge-${stamp()}.json`);
+  const r = await run(path.join(ROOT, 'tools', 'vmapp'), ['run', BRIDGE_APP, '--headless', '--script', path.join(ROOT, 'bench', 'bridge', 'bench.mjs'), '--timeout', '120000'], {
+    env: benchEnv({ BENCH_RUNS: String(runs), BENCH_RESULTS: results }),
+    logFile: path.join(BENCH, 'logs', `bridge-${stamp()}.log`),
+    tag: 'bridge',
+  });
+  if (r.code !== 0 || !fs.existsSync(results)) throw new Error(`bench/bridge/bench.mjs failed (${r.code}):\n${r.tail.slice(-12).join('\n')}`);
+  return readJson(results);
+}
+
+// ----------------------------------------------------------------------------------------------------------------------- llm
+function findModel(entry) {
+  for (const dir of [MODEL_CACHE, ...MODEL_DIRS]) {
+    const f = path.join(dir, entry.file);
+    try {
+      if (fs.statSync(f).size === entry.bytes) return f;
+    } catch {
+      /* not here */
+    }
+  }
+  return null;
+}
+/** The model file on the host: found in a cache or downloaded from the pinned URL, and always checked against the sha256 of models.json. */
+async function ensureModel(entry) {
+  let file = findModel(entry);
+  if (!file) {
+    fs.mkdirSync(MODEL_CACHE, { recursive: true });
+    file = path.join(MODEL_CACHE, entry.file);
+    const part = `${file}.part`;
+    log(`  [llm] downloading ${entry.name} (${(entry.bytes / 1e9).toFixed(1)} GB) from ${entry.url}`);
+    const r = cp.spawnSync('curl', ['-fL', '-sS', '--retry', '3', '--retry-delay', '2', '-C', '-', '-o', part, entry.url], { stdio: ['ignore', 'inherit', 'inherit'] });
+    if (r.status !== 0) throw new Error(`the download of ${entry.url} failed (curl exit ${r.status}); download the file yourself into ${MODEL_CACHE}`);
+    fs.renameSync(part, file);
+  }
+  log(`  [llm] checking the sha256 of ${file}`);
+  const got = await sha256File(file);
+  if (got !== entry.sha256) throw new Error(`${file} has sha256 ${got}, but models.json says ${entry.sha256}: delete the file and run again`);
+  return file;
+}
+async function benchLlm(o) {
+  const runs = o.runs || DEFAULT_RUNS.llm;
+  const ids = o.models || ['qwen2.5-7b'];
+  const catalog = readJson(path.join(ROOT, 'apps', 'local-llm', 'core', 'models.json')).models;
+  const pins = parseEnvFile(path.join(ROOT, 'gpu', 'pins.env'));
+  const info = fs.existsSync(path.join(ROOT, 'apps', 'local-llm', 'core', 'bin', 'BUILD-INFO.txt')) ? fs.readFileSync(path.join(ROOT, 'apps', 'local-llm', 'core', 'bin', 'BUILD-INFO.txt'), 'utf8').split('\n') : [];
+  ensureRuntime('node22');
+  installApp(path.join(ROOT, 'apps', 'local-llm'), 'local-llm');
+  const out = {
+    llamaCpp: { tag: pins.LLAMA_CPP_TAG, commit: pins.LLAMA_CPP_COMMIT, rpcProtocol: pins.RPC_PROTO_VERSION },
+    llamaServerBuild: info.filter(Boolean).slice(0, 6),
+    models: {},
+  };
+  try {
+    for (const id of ids) {
+      const entry = catalog.find((m) => m.id === id);
+      if (!entry) throw new Error(`unknown model ${JSON.stringify(id)}; the catalog has: ${catalog.map((m) => m.id).join(', ')}`);
+      const file = await ensureModel(entry);
+      const cpuMem = entry.bytes > 2.5e9 ? 8192 : 4096; // a model that big does not fit the app's recommended 4 GiB on the CPU
+      const phases = {};
+      for (const phase of ['cpu', 'gpu']) {
+        vmappCli(['grant-host', LLM_APP, 'gpu', '--revoke'], { allowFail: true });
+        vmappCli(['resources', LLM_APP, '--cpus', '4', '--memory', String(phase === 'cpu' ? cpuMem : 4096)]);
+        if (phase === 'gpu') vmappCli(['grant-host', LLM_APP, 'gpu']);
+        const results = path.join(BENCH, 'tmp', `llm-${id}-${phase}-${stamp()}.json`);
+        const r = await run(path.join(ROOT, 'tools', 'vmapp'), ['run', LLM_APP, '--headless', '--script', path.join(ROOT, 'bench', 'llm', 'bench-llm.mjs'), '--timeout', '3600000'], {
+          env: benchEnv({ BENCH_PHASE: phase, BENCH_MODEL_ID: id, BENCH_MODEL_FILE: file, BENCH_RUNS: String(runs), BENCH_RESULTS: results }),
+          logFile: path.join(BENCH, 'logs', `llm-${id}-${phase}-${stamp()}.log`),
+          tag: `llm ${id} ${phase}`,
+        });
+        if (r.code !== 0 || !fs.existsSync(results)) throw new Error(`bench/llm/bench-llm.mjs (${id}, ${phase}) failed (${r.code}):\n${r.tail.slice(-12).join('\n')}`);
+        phases[phase] = readJson(results);
+      }
+      out.models[id] = { model: phases.cpu.model, vmMemoryMiB: { cpu: cpuMem, gpu: 4096 }, cpu: phases.cpu, gpu: phases.gpu };
+    }
+  } finally {
+    vmappCli(['grant-host', LLM_APP, 'gpu', '--revoke'], { allowFail: true });
+    vmappCli(['resources', LLM_APP, '--default'], { allowFail: true });
+  }
+  return out;
+}
+
+// -------------------------------------------------------------------------------------------------------------------- vulkan
+function spikePins() {
+  // The "Pinned sources" table of gpu/venus-spike/BUILD.md is the single source of truth for versions; read the rows that matter.
+  const want = ['libkrun', 'virglrenderer, slp fork', 'MoltenVK', 'Mesa (guest Venus driver)', 'llama.cpp', 'vkpeak', 'Linux (guest kernel)', 'Vulkan CTS (VK-GL-CTS)'];
+  const pins = {};
+  for (const l of fs.readFileSync(path.join(ROOT, 'gpu', 'venus-spike', 'BUILD.md'), 'utf8').split('\n')) {
+    const c = l.split('|').map((x) => x.trim());
+    if (c.length > 4 && want.includes(c[1])) pins[c[1]] = { version: c[2].replace(/`/g, ''), commit: c[3].replace(/`/g, '') };
+  }
+  return pins;
+}
+async function benchVulkan(o) {
+  const runs = o.runs || DEFAULT_RUNS.vulkan;
+  const dir = path.join(BENCH, 'vulkan');
+  const r = await run(path.join(ROOT, 'bench', 'vulkan', 'run.sh'), ['all'], {
+    env: benchEnv({ BENCH_OUT: dir, BENCH_RUNS: String(runs), VMAPP_GS_WORK: GS }),
+    logFile: path.join(BENCH, 'logs', `vulkan-${stamp()}.log`),
+    tag: 'vulkan',
+  });
+  if (r.code !== 0) throw new Error(`bench/vulkan/run.sh failed (${r.code}):\n${r.tail.slice(-12).join('\n')}`);
+  const parsed = require(path.join(ROOT, 'bench', 'vulkan', 'parse.js')).parseDir(dir);
+  parsed.llamaBenchRepetitions = runs;
+  parsed.model = readJson(path.join(ROOT, 'bench', 'vulkan', 'models.json')).models[0];
+  parsed.pins = spikePins();
+
+  // ---- HOOK: vmapp's own Vulkan backend ---------------------------------------------------------------------------------------------
+  // The spike above is the research stack. The product backend (the experimental Vulkan launcher `vmapp-vm-krun`, SPEC 8.7; its
+  // tests live in tests/gpu-vulkan/) is measured by `tests/gpu-vulkan/run.sh --bench`, run here after the spike so that its numbers
+  // sit next to the spike's in the same JSON. Contract (docs/BENCHMARKS.md section 8): the script prints whatever it likes; if its
+  // LAST line of output is a JSON object, that object is stored and shown. Exit status 0 = ran fine, 2 = a prerequisite is missing
+  // (it names the fix on stderr). BENCH_NATIVE_FROM points it at the logs of the native runs above, so it does not repeat them.
+  const hook = path.join(ROOT, 'tests', 'gpu-vulkan', 'run.sh');
+  if (fs.existsSync(hook)) {
+    // run through bash, so that a script without the executable bit still works
+    const h = await run('/bin/bash', [hook, '--bench'], { env: benchEnv({ BENCH_RUNS: String(runs), BENCH_NATIVE_FROM: dir }), logFile: path.join(BENCH, 'logs', `gpu-vulkan-${stamp()}.log`), tag: 'gpu-vulkan' });
+    let result = null;
+    try {
+      result = JSON.parse([...h.tail].reverse().find((l) => l.trim()) || '');
+    } catch {
+      /* no JSON result line */
+    }
+    const unsupported = h.code === 2 && !result && h.tail.some((l) => /unknown argument/.test(l));
+    parsed.productBackend = {
+      script: 'tests/gpu-vulkan/run.sh --bench',
+      exitStatus: h.code,
+      result,
+      note: unsupported ? 'the script exists but does not know --bench yet' : undefined,
+      // no result: keep what the script said (a missing prerequisite names its fix command there)
+      output: result ? undefined : h.tail.filter((l) => l.trim()).slice(-12),
+    };
+  } else {
+    parsed.productBackend = { script: 'tests/gpu-vulkan/run.sh --bench', available: false };
+  }
+  return parsed;
+}
+
+// -------------------------------------------------------------------------------------------------------------------- reporting
+function table(title, rows, header = ['median', 'p95', 'min', 'max']) {
+  const out = [`\n${title}`];
+  const w = Math.max(...rows.map((r) => r.label.length), 20);
+  out.push(`  ${''.padEnd(w)}  ${header.map((h) => h.padStart(11)).join(' ')}`);
+  for (const r of rows) {
+    if (r.text) {
+      out.push(`  ${r.label.padEnd(w)}  ${r.text}`);
+      continue;
+    }
+    const cell = (v) => (v === null || v === undefined ? ''.padStart(11) : `${num(v, r.d || 0)}${r.unit ? ` ${r.unit}` : ''}`.padStart(11));
+    out.push(`  ${r.label.padEnd(w)}  ${[r.median, r.p95, r.min, r.max].map(cell).join(' ')}`);
+  }
+  return out.join('\n');
+}
+const sr = (label, s, unit, d = 0) => (s ? { label, median: s.median, p95: s.p95, min: s.min, max: s.max, unit, d } : { label, text: 'n/a' });
+
+function reportBoot(b) {
+  const a = b.app;
+  const rows = [
+    sr(`Node app: spawn -> vmapp-vm "ready"           (n=${a.runs})`, a.spawnToReadyMs, 'ms'),
+    sr('Node app: spawn -> the core\'s first message', a.spawnToCoreMs, 'ms'),
+    sr('Node app: spawn -> first window requested', a.spawnToWindowMs, 'ms'),
+    sr('Node app: quit -> VM stopped', a.stopMs, 'ms'),
+    sr('Node app: VM memory footprint, 1 s after the first window', a.vmProcessMemory.footprintAfter1sMiB, 'MiB'),
+    sr('Node app: VM process RSS, 1 s after the first window', a.vmProcessMemory.rssAfter1sMiB, 'MiB'),
+    sr(`minimal VM (Rust core): spawn -> "ready"    (n=${b.raw.runs})`, b.raw.spawnToReadyMs, 'ms'),
+    sr('minimal VM (Rust core): spawn -> first reply', b.raw.spawnToCoreMs, 'ms'),
+    sr('minimal VM (Rust core): VM memory footprint, 1 s after the first reply', b.raw.vmProcessMemory.footprintAfter1sMiB, 'MiB'),
+    sr('minimal VM (Rust core): VM process RSS, 1 s after the first reply', b.raw.vmProcessMemory.rssAfter1sMiB, 'MiB'),
+    sr(`kill -9 of the parent -> VM gone             (n=${b.kill.runs})`, b.kill.killToBothGoneMs, 'ms'),
+  ];
+  const s = b.sizes || {};
+  rows.push({ label: 'sizes', text: `kernel ${MB(b.versions.kernel.bytes)}, init ${KB(b.versions.init.bytes)}, Notes sample package ${s.notesPackageBytes ? `${(s.notesPackageBytes / 1024).toFixed(1)} KiB` : 'n/a'}` });
+  return table(`VM start  (Node app: ${a.appId}, runtime ${a.runtime}, ${a.vm.cpus} vCPU, ${a.vm.memoryMiB} MiB; first run discarded as warm-up)`, rows);
+}
+function reportBridge(b) {
+  const r = b.reply;
+  const rows = [
+    sr(`sequential small invoke, round trip   (n=${b.smallInvoke.calls})`, { median: b.smallInvoke.medianMs, p95: b.smallInvoke.p95Ms, min: b.smallInvoke.minMs, max: b.smallInvoke.maxMs }, 'ms', 3),
+    { label: '  ... p99', text: `${num(b.smallInvoke.p99Ms, 3)} ms` },
+    sr(`1000 concurrent invokes   (${b.rounds} rounds)`, b.parallelInvoke.callsPerSecond, 'calls/s'),
+    ...Object.values(r).map((x) => ({ label: `reply of ${x.bytes >= 1048576 ? x.bytes / 1048576 + ' MiB' : x.bytes / 1024 + ' KiB'}`, median: x.medianMs, min: Math.min(...x.perRoundMedianMs), max: Math.max(...x.perRoundMedianMs), unit: 'ms', d: 2, p95: null })),
+    { label: 'bulk throughput (8 MiB replies)', text: `${num(r[8388608].mibPerSecond, 1)} MiB/s` },
+    sr(`core -> UI messages (100 B)   (${b.rounds} rounds)`, b.emit.messagesPerSecond, 'msg/s'),
+  ];
+  return table('UI <-> VM bridge  (host side: hostlib, as the loader uses it; the loader adds one Electron IPC hop on top)', rows);
+}
+function reportLlm(b) {
+  const out = [];
+  for (const [id, m] of Object.entries(b.models)) {
+    const c = m.cpu;
+    const g = m.gpu;
+    const rows = [
+      sr(`generation, VM CPU (${c.vm.cpus} vCPUs, ${m.vmMemoryMiB.cpu} MiB VM)`, c.generation.summary, 'tok/s', 1),
+      sr(`generation, Mac GPU over RPC (${m.vmMemoryMiB.gpu} MiB VM)`, g.generation.summary, 'tok/s', 1),
+      { label: '  GPU / CPU', text: `x${(g.generation.summary.median / c.generation.summary.median).toFixed(2)}` },
+      sr('prompt processing, VM CPU', c.promptProcessing.summary, 'tok/s'),
+      sr('prompt processing, Mac GPU over RPC', g.promptProcessing.summary, 'tok/s'),
+      { label: '  GPU / CPU', text: `x${(g.promptProcessing.summary.median / c.promptProcessing.summary.median).toFixed(1)}` },
+      { label: 'model load', text: `CPU ${(c.loadMs / 1000).toFixed(1)} s, GPU ${(g.loadMs / 1000).toFixed(1)} s` },
+      { label: 'on the GPU', text: `${g.gpu.layers}/${g.gpu.totalLayers} layers, ${g.gpu.rpcMiB} MiB of weights on the host` },
+    ];
+    out.push(table(`Local LLM: ${m.model.name} ${m.model.quant}, context ${c.context}, greedy; ${c.generation.runs} runs of ${c.generation.newTokens} tokens; prompt ~${c.promptProcessing.promptTokens} tokens`, rows));
+  }
+  return out.join('\n');
+}
+function reportVulkan(b) {
+  const out = [];
+  const vp = b.vkpeak;
+  if (vp && vp.vm && vp.native) {
+    const rows = [];
+    for (const [k, label, d] of [['fp32-scalar', 'fp32 (scalar)', 0], ['fp16-vec4', 'fp16 (vec4)', 0], ['int32-scalar', 'int32', 0], ['int8-dotprod', 'int8 dot product', 0], ['copy-d2d', 'copy device -> device', 0]]) {
+      const v = vp.vm.metrics[k];
+      const n = vp.native.metrics[k];
+      if (v && n) rows.push({ label: `${label} (${v.unit})`, text: `VM ${num(v.value, d).padStart(8)}   native ${num(n.value, d).padStart(8)}   VM/native ${((v.value / n.value) * 100).toFixed(1)}%` });
+    }
+    out.push(table(`GPU compute: vkpeak  (VM: ${vp.vm.device}, ${vp.vm.driver}; native: ${vp.native.device}, ${vp.native.driver})`, rows, []));
+  }
+  const l = b.llama;
+  if (l && l.vmVenus && l.nativeMetal) {
+    const mk = (test, d) => {
+      const vm = l.vmVenus[test];
+      const mt = l.nativeMetal[test];
+      const mv = l.nativeMoltenvk && l.nativeMoltenvk[test];
+      return { label: `${test === 'tg128' ? 'generation (tg128)' : 'prompt (pp512)'}, tokens/s`, text: `VM Venus ${num(vm.mean, d).padStart(8)}   native Metal ${num(mt.mean, d).padStart(8)}   native MoltenVK ${num(mv && mv.mean, d).padStart(8)}   VM/Metal ${((vm.mean / mt.mean) * 100).toFixed(0)}%` };
+    };
+    out.push(table(`llama.cpp llama-bench, ${b.model.name} ${b.model.quant}, -p 512 -n 128 -r ${b.llamaBenchRepetitions} (build ${l.vmVenus.build})`, [mk('tg128', 1), mk('pp512', 0)], []));
+  }
+  const p = b.productBackend;
+  if (p && p.available === false) out.push(`\n  D9010 VmApp's own Vulkan backend: not available yet (hook: ${p.script})`);
+  else if (p && p.note) out.push(`\n  D9010 VmApp's own Vulkan backend: ${p.note} (hook: ${p.script})`);
+  else if (p && p.result && !p.result.error && p.result.vkpeak_fp32_gflops !== undefined) {
+    // the fields of docs/BENCHMARKS.md section 8
+    const r = p.result;
+    const nat = r.native || null;
+    const ra = r.ratios_pct || {};
+    const rows = [
+      `vkpeak fp32 ${num(r.vkpeak_fp32_gflops)} GFLOPS${ra.vkpeak_fp32_vs_native != null ? ` (${ra.vkpeak_fp32_vs_native}% of native MoltenVK)` : ''}`,
+      `llama-bench ${r.model} -r ${r.repetitions}: generation (tg128) ${num(r.llama_tg128, 1)} tokens/s${ra.llama_tg128_vs_metal != null ? ` = ${ra.llama_tg128_vs_metal}% of native Metal (${num(nat && nat.metal && nat.metal.tg128, 1)})` : ''}, prompt (pp512) ${num(r.llama_pp512)} tokens/s${ra.llama_pp512_vs_metal != null ? ` = ${ra.llama_pp512_vs_metal}% of Metal` : ''}`,
+    ];
+    out.push(`\n  D9010 VmApp's own Vulkan backend (vmapp-vm-krun, ${p.script}; ${r.device || 'GPU not identified'}):`);
+    for (const x of rows) out.push(`    ${x}`);
+  } else if (p) {
+    out.push(`\n  D9010 VmApp's own Vulkan backend (${p.script}): exit ${p.exitStatus}${p.result ? `, ${JSON.stringify(p.result)}` : ' (no JSON result line)'}`);
+    for (const l of p.output || []) out.push(`      ${l}`);
+  }
+  return out.join('\n');
+}
+function pinsText(r) {
+  const lines = [];
+  lines.push(`D9010 VmApp ${r.vmapp.commit}${r.vmapp.uncommittedFiles ? ` (+${r.vmapp.uncommittedFiles} uncommitted files)` : ''}; vmapp-vm sha256 ${r.vmapp.vmappVm ? r.vmapp.vmappVm.sha256 : 'n/a'}; hostlib sha256 ${r.vmapp.hostlibSha256}; kernel ${r.vmapp.kernel ? r.vmapp.kernel.release : 'n/a'}`);
+  if (r.results.llm) {
+    const l = r.results.llm;
+    lines.push(`llama.cpp ${l.llamaCpp.tag} (${(l.llamaCpp.commit || '').slice(0, 12)}), RPC protocol ${l.llamaCpp.rpcProtocol}; ${l.llamaServerBuild.filter((x) => /^(build|options)/.test(x)).join('; ')}`);
+    for (const [id, m] of Object.entries(l.models)) lines.push(`model ${id}: ${m.model.file}, ${m.model.bytes} bytes, sha256 ${m.model.sha256}`);
+  }
+  if (r.results.vulkan && r.results.vulkan.pins) {
+    const p = r.results.vulkan.pins;
+    lines.push(Object.entries(p).map(([k, v]) => `${k.replace(/ \(.*\)| ,.*/, '').replace(/, slp fork/, '')} ${v.version}`).join('; '));
+    lines.push(`vulkan model: ${r.results.vulkan.model.file}, sha256 ${r.results.vulkan.model.sha256}`);
+  }
+  return lines;
+}
+function summaryLines(r) {
+  const L = [];
+  const R = r.results;
+  if (R.boot && R.boot.app) {
+    const a = R.boot.app;
+    L.push(['VM start', `ready ${num(a.spawnToReadyMs.median)} ms; a Node app's core answers after ${num(a.spawnToCoreMs.median)} ms; minimal VM: ready ${num(R.boot.raw.spawnToReadyMs.median)} ms, first reply ${num(R.boot.raw.spawnToCoreMs.median)} ms`]);
+    L.push(['VM memory (footprint)', `${num(R.boot.raw.vmProcessMemory.footprintAfter1sMiB.median)} MiB for the minimal VM; ${num(a.vmProcessMemory.footprintAfter1sMiB.median)} MiB for a Node app (${a.vm.memoryMiB} MiB VM); ps RSS ${num(R.boot.raw.vmProcessMemory.rssAfter1sMiB.median)} / ${num(a.vmProcessMemory.rssAfter1sMiB.median)} MiB`]);
+    L.push(['kill -9 of the parent', `VM gone after ${num(R.boot.kill.killToBothGoneMs.median)} ms (median), ${num(R.boot.kill.killToBothGoneMs.max)} ms (worst of ${R.boot.kill.runs})`]);
+  }
+  if (R.bridge) {
+    const b = R.bridge;
+    L.push(['UI <-> VM bridge', `${num(b.smallInvoke.medianMs, 3)} ms median round trip; ${num(b.parallelInvoke.callsPerSecond.median)} calls/s; ${num(b.reply[8388608].mibPerSecond)} MiB/s bulk; ${num(b.emit.messagesPerSecond.median)} events/s`]);
+  }
+  if (R.vulkan && R.vulkan.vkpeak && R.vulkan.vkpeak.vm && R.vulkan.vkpeak.native) {
+    const v = R.vulkan.vkpeak.vm.metrics['fp32-scalar'].value;
+    const n = R.vulkan.vkpeak.native.metrics['fp32-scalar'].value;
+    L.push(['GPU compute in the VM', `${(v / 1000).toFixed(2)} TFLOPS fp32 vs ${(n / 1000).toFixed(2)} native (${((v / n) * 100).toFixed(1)}%)`]);
+  }
+  if (R.vulkan && R.vulkan.llama && R.vulkan.llama.vmVenus && R.vulkan.llama.nativeMetal) {
+    const l = R.vulkan.llama;
+    L.push(['Local LLM, Vulkan', `${R.vulkan.model.name}: ${num(l.vmVenus.tg128.mean, 1)} tok/s generation = ${((l.vmVenus.tg128.mean / l.nativeMetal.tg128.mean) * 100).toFixed(0)}% of native Metal (${num(l.nativeMetal.tg128.mean, 1)}); prompt ${num(l.vmVenus.pp512.mean)} tok/s`]);
+  }
+  if (R.llm) {
+    for (const [id, m] of Object.entries(R.llm.models)) {
+      L.push([`Local LLM, GPU over RPC (${id})`, `generation ${num(m.cpu.generation.summary.median, 1)} -> ${num(m.gpu.generation.summary.median, 1)} tok/s, prompt ${num(m.cpu.promptProcessing.summary.median)} -> ${num(m.gpu.promptProcessing.summary.median)} tok/s (CPU only -> GPU)`]);
+    }
+  }
+  return L;
+}
+
+function printReport(r) {
+  const out = [];
+  const m = r.machine;
+  out.push(`D9010 VmApp benchmarks, ${r.startedAt}`);
+  out.push(`machine   ${m.chip}${m.performanceCores ? ` (${m.logicalCpus} cores: ${m.performanceCores} performance + ${m.efficiencyCores} efficiency)` : ''}, ${m.ramGiB} GB, macOS ${m.macos}, Node ${m.node}`);
+  const busy = r.loadAverage.start[0] / m.logicalCpus > 0.3;
+  out.push(`load      1-minute load average ${r.loadAverage.start[0]} at the start, ${r.loadAverage.end[0]} at the end, on ${m.logicalCpus} cores${busy ? '  (BUSY: other work is running; expect noise, repeat when the Mac is quiet)' : ' (quiet enough)'}; memory free ${r.memoryFreePercent.start}% at the start`);
+  for (const l of pinsText(r)) out.push(`versions  ${l}`);
+  if (r.results.boot) out.push(reportBoot({ ...r.results.boot, versions: r.vmapp }));
+  if (r.results.bridge) out.push(reportBridge(r.results.bridge));
+  if (r.results.llm) out.push(reportLlm(r.results.llm));
+  if (r.results.vulkan) out.push(reportVulkan(r.results.vulkan));
+  for (const [n, e] of Object.entries(r.failed)) out.push(`\n${n}: FAILED: ${e}`);
+  for (const [n, e] of Object.entries(r.skipped)) out.push(`\n${n}: skipped: ${e}`);
+  const sum = summaryLines(r);
+  if (sum.length) {
+    out.push('\nCompare with the README table "By the numbers":');
+    const w = Math.max(...sum.map((x) => x[0].length));
+    for (const [k, v] of sum) out.push(`  ${k.padEnd(w)}  ${v}`);
+  }
+  out.push(`\nfull results: ${r.file}`);
+  return out.join('\n');
+}
+
+// ------------------------------------------------------------------------------------------------------------------------- main
+async function main() {
+  const o = parseArgs(process.argv.slice(2));
+  const record = {
+    schema: 1,
+    startedAt: new Date().toISOString(),
+    machine: machineInfo(),
+    vmapp: vmappInfo(),
+    loadAverage: { start: loadNow(), end: null },
+    memoryFreePercent: { start: memoryFreePercent(), end: null },
+    options: { runs: o.runs, models: o.models },
+    results: {},
+    failed: {},
+    skipped: {},
+  };
+
+  // prerequisites first: nothing starts if something is missing (unless --skip-missing)
+  const missing = {};
+  for (const n of o.names) {
+    const m = prerequisites(n);
+    if (m.length) missing[n] = m;
+  }
+  const report = (miss) => {
+    for (const [n, list] of Object.entries(miss)) {
+      process.stderr.write(`\ntools/bench ${n}: missing prerequisites\n`);
+      for (const x of list) process.stderr.write(`  - ${x.what}\n      fix: ${x.fix}\n`);
+    }
+  };
+  if (Object.keys(missing).length && !o.skipMissing) {
+    report(missing);
+    process.stderr.write('\nNothing was run. Fix the above (or use --skip-missing with "all" to run what is possible).\n');
+    process.exit(2);
+  }
+  if (o.check) {
+    process.stderr.write('all prerequisites are present\n');
+    process.exit(0);
+  }
+  if (Object.keys(missing).length) {
+    report(missing);
+    for (const n of Object.keys(missing)) record.skipped[n] = `missing prerequisites: ${missing[n].map((x) => x.what).join(', ')}`;
+    o.names = o.names.filter((n) => !missing[n]);
+  }
+
+  fs.mkdirSync(path.join(BENCH, 'tmp'), { recursive: true });
+  fs.mkdirSync(BENCH_HOME, { recursive: true });
+  if (record.loadAverage.start[0] / record.machine.logicalCpus > 0.3) log(`note: the Mac is busy (load average ${record.loadAverage.start[0]}); the numbers will be noisy. Close other work and repeat if they matter.`);
+
+  const fns = { boot: benchBoot, bridge: benchBridge, llm: benchLlm, vulkan: benchVulkan };
+  for (const n of o.names) {
+    log(`\n== ${n}`);
+    try {
+      record.results[n] = await fns[n](o);
+    } catch (e) {
+      record.failed[n] = e.message;
+      log(`tools/bench ${n} FAILED: ${e.message}`);
+    }
+  }
+
+  record.finishedAt = new Date().toISOString();
+  record.loadAverage.end = loadNow();
+  record.memoryFreePercent.end = memoryFreePercent();
+  record.file = path.join(BENCH, `${stamp()}.json`);
+  fs.writeFileSync(record.file, JSON.stringify(record, null, 2));
+  if (o.json) process.stdout.write(JSON.stringify(record, null, 2) + '\n');
+  else process.stdout.write(printReport(record) + '\n');
+  process.exit(Object.keys(record.failed).length ? 1 : Object.keys(record.skipped).length && !o.names.length ? 2 : 0);
+}
+
+main().catch((e) => {
+  if (e instanceof Usage) {
+    process.stderr.write(`tools/bench: ${e.message}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  process.stderr.write(`tools/bench: ${e.stack || e.message}\n`);
+  process.exit(1);
+});

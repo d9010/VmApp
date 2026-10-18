@@ -1,0 +1,99 @@
+/* ui/style.css: plain CSS, nothing to build. (Local files only: the page may not load fonts or styles from the web.) */
+
+:root {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --text: #1c2330;
+  --muted: #5d6879;
+  --line: #dfe3ea;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --error: #b42318;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --card: #1d222a;
+    --text: #e8ebf0;
+    --muted: #9aa5b5;
+    --line: #2d3440;
+    --accent: #5b8def;
+    --accent-text: #0b1220;
+    --error: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 24px 20px 40px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header, main { max-width: 680px; margin: 0 auto; }
+h1 { margin: 0 0 4px; font-size: 26px; }
+h2 { margin: 0 0 4px; font-size: 16px; }
+.lead { margin: 0 0 20px; color: var(--muted); }
+
+section {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.hint { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.status { margin: 8px 0 0; min-height: 1.2em; color: var(--muted); }
+.status.error { color: var(--error); }
+.big { margin: 0 0 10px; font-size: 28px; font-weight: 600; }
+.big small { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.08); }
+button:active { filter: brightness(0.94); }
+
+textarea {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
+
+.files { max-height: 160px; margin: 6px 0 0; padding-left: 20px; overflow: auto; font-family: ui-monospace, Menlo, monospace; }
+
+.preview {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -1,0 +1,12 @@
+/out/
+/website/dist/
+/website/.leak-markers
+.wrangler/
+target/
+node_modules/
+*.vmapp
+.DS_Store
+# deployment secrets (registry/.env holds the storage credentials); only the .env.example files are versioned
+.env
+.env.*
+!.env.example

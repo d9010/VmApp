@@ -1,0 +1,786 @@
+body {
+  display: flex;
+  flex-direction: column;
+}
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px 12px;
+}
+.top h1 {
+  margin: 0 0 2px;
+  font-size: 20px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+}
+#banners {
+  padding: 0 24px;
+}
+.banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.banner.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.banner.info {
+  border-color: var(--ok);
+}
+.banner button {
+  flex: none;
+  padding: 0 8px;
+}
+.apps {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 24px 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+.empty {
+  grid-column: 1 / -1;
+  padding: 48px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card.running {
+  border-color: var(--ok);
+}
+.card-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+  background: var(--chip);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  overflow: hidden;
+}
+.icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.titles {
+  flex: 1;
+  min-width: 0;
+}
+.name {
+  font-size: 15px;
+  font-weight: 650;
+}
+.version {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.state {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.running .dot {
+  background: var(--ok);
+}
+.starting .dot,
+.stopping .dot {
+  background: var(--warn);
+}
+.desc {
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  background: var(--chip);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chip.sandbox {
+  color: var(--ok);
+}
+.perms {
+  font-size: 12px;
+  display: grid;
+  gap: 2px;
+}
+.perms .row {
+  display: flex;
+  gap: 6px;
+}
+.perms .k {
+  flex: none;
+  width: 84px;
+  color: var(--muted);
+}
+.card-error {
+  color: var(--danger);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow: auto;
+}
+.card-note {
+  color: var(--warn);
+  font-size: 12px;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.buttons .spacer {
+  flex: 1;
+}
+
+/* modal sheets (loader-owned: the app can never draw these) */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.sheet {
+  width: min(640px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sheet h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.sheet .foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.sheet .foot .grow {
+  flex: 1;
+}
+.kv {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 3px 10px;
+  font-size: 12.5px;
+}
+.kv .k {
+  color: var(--muted);
+}
+.kv .v {
+  word-break: break-word;
+}
+.folder {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  display: grid;
+  gap: 5px;
+}
+.folder .fname {
+  font-weight: 650;
+}
+.badge {
+  font-weight: 500;
+  font-size: 11.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  margin-left: 6px;
+}
+.badge.rw {
+  color: var(--warn);
+}
+.purpose.none {
+  font-style: italic;
+  color: var(--muted);
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.choice .path {
+  flex: 1;
+  min-width: 140px;
+  word-break: break-all;
+}
+.choice .path.unset {
+  color: var(--muted);
+  font-style: italic;
+}
+.accessrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.warn {
+  color: var(--warn);
+}
+.err {
+  color: var(--danger);
+}
+.confirm-text {
+  white-space: pre-wrap;
+}
+
+/* updates row on a card, versions list, registry form */
+.updates {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.updates .k {
+  color: var(--muted);
+}
+.card-notice {
+  font-size: 12px;
+  color: var(--muted);
+}
+.card-notice.warn {
+  color: var(--warn);
+}
+.card-withdrawn {
+  font-size: 12px;
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.vlist {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.vrow .vnum {
+  font-weight: 650;
+  min-width: 70px;
+}
+.vrow .vinfo {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-word;
+}
+.vrow .vinfo.withdrawn {
+  color: var(--danger);
+}
+.formgrid {
+  display: grid;
+  gap: 4px;
+}
+.formgrid input[type='text'],
+.formgrid input[type='password'] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* developer builds and the Publish… sheet */
+.chip.dev {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: transparent;
+}
+.pubform {
+  display: grid;
+  gap: 4px;
+}
+.pubform[hidden] {
+  display: none;
+}
+.pubform input[type='text'],
+.pubform input[type='password'] {
+  width: 100%;
+  box-sizing: border-box;
+}
+.pubform .sub {
+  font-size: 12px;
+}
+.tokenbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.tokenbox .mono {
+  flex: 1;
+  word-break: break-all;
+  user-select: all;
+}
+.morelist {
+  display: grid;
+  gap: 4px;
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+/* host capabilities (SPEC 8.2): red on purpose, in the card, the sheet and the review */
+.chip.red {
+  color: #fff;
+  background: var(--danger);
+  font-weight: 600;
+}
+.chip.red.active {
+  animation: hostpulse 1.4s ease-in-out infinite;
+}
+@keyframes hostpulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip.red.active {
+    animation: none;
+  }
+}
+/* Activity: the running apps and what each can reach right now (compact; the menu-bar popover has the full view) */
+.activity {
+  padding: 0 24px 10px;
+}
+.activity .act-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+#control-bar {
+  padding: 0 24px;
+}
+#control-bar:empty {
+  display: none;
+}
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 650;
+}
+.control-item .ctext {
+  flex: 1;
+}
+.control-item .dot {
+  background: #fff;
+}
+.control-item button {
+  flex: none;
+  background: #fff;
+  color: var(--danger);
+  border-color: #fff;
+  font-weight: 700;
+}
+.hostsec {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--danger);
+  border-radius: 12px;
+}
+.hostsec h3 {
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+}
+.hostwarn {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.warnbox {
+  border: 1px solid var(--danger);
+  background: var(--panel-2);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 650;
+}
+.hostcap.serious {
+  border-color: var(--danger);
+}
+.picks {
+  display: grid;
+  gap: 4px;
+  padding-left: 4px;
+}
+.picks[hidden] {
+  display: none;
+}
+.picks .pick.shell {
+  color: var(--danger);
+}
+.sub {
+  font-size: 12px;
+}
+
+/* network (SPEC 8.3): amber chip on the card; the combined risk (it can read your data AND reach hosts) is a loud red box */
+.chip.amber {
+  color: var(--panel);
+  background: var(--warn);
+  font-weight: 600;
+}
+.warnbox.active {
+  background: var(--danger);
+  color: #fff;
+}
+.netsec {
+  border-color: var(--warn);
+}
+.netsec h3 {
+  color: var(--warn);
+}
+.netsec .hostwarn {
+  color: var(--text);
+}
+.folder .fname .chip {
+  margin-left: 6px;
+}
+.netsec .mono {
+  word-break: break-all;
+}
+#modal-root .sheet [data-role='net-risk-box']:empty {
+  display: none;
+}
+#modal-root .sheet [data-role='net-risk-box'] {
+  display: grid;
+  gap: 6px;
+}
+
+/* the VM's size (SPEC 2.2, 8): the card's Resources row and the sheet's section */
+.resrow {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+}
+.resrow > .k {
+  flex: none;
+  width: 84px;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.rescontrol {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.resline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.reslabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.reslabel input[type='number'] {
+  width: 52px;
+  text-align: center;
+}
+.ressec {
+  border-color: var(--line);
+}
+.ressec h3 {
+  color: var(--text);
+}
+
+/* the empty library: the way in is "Load examples" or a .vmapp file */
+.empty .empty-title {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.empty .empty-text {
+  max-width: 520px;
+  margin: 0 auto 16px;
+}
+.empty .empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.empty .empty-actions button {
+  padding: 7px 18px;
+  font-size: 14px;
+}
+.empty .sub {
+  margin-top: 14px;
+}
+
+/* "Load examples": the list of sample apps in a loader-owned sheet */
+.sheet.wide {
+  width: min(780px, 100%);
+}
+.examples {
+  display: grid;
+  gap: 10px;
+}
+.exnote {
+  border: 1px solid var(--ok);
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.exbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.exlist {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+.exrow {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  padding: 8px 12px;
+  display: grid;
+  gap: 4px;
+}
+.exrow.unavailable {
+  opacity: 0.75;
+}
+.exhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.exname {
+  font-weight: 650;
+  font-size: 14px;
+}
+.exdesc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.exallow {
+  font-size: 12.5px;
+}
+.exallow .k {
+  color: var(--muted);
+}
+.exstatus {
+  font-size: 12.5px;
+  word-break: break-word;
+}
+.exstatus:empty {
+  display: none;
+}
+.exstatus.ok,
+.exsummary.ok {
+  color: var(--ok);
+}
+.exstatus.err,
+.exsummary.err {
+  color: var(--danger);
+}
+.exstatus.busy {
+  color: var(--accent);
+}
+.exsummary {
+  font-weight: 650;
+}
+.exsummary:empty {
+  display: none;
+}
+
+/* "Browse registry": search box, sort, and the results as cards in a loader-owned sheet */
+.browse {
+  display: grid;
+  gap: 10px;
+}
+.bbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bbar input[type='text'] {
+  flex: 1;
+}
+.bbar label {
+  color: var(--muted);
+}
+.blist {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+.blist:empty {
+  display: none;
+}
+.brow {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  padding: 8px 12px;
+  display: grid;
+  gap: 4px;
+}
+.bhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bicon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--chip);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 650;
+  font-size: 16px;
+}
+.btitle {
+  flex: 1;
+  min-width: 0;
+}
+.bname {
+  font-weight: 650;
+  font-size: 14px;
+  margin-right: 6px;
+}
+.brow .pub-domain,
+.brow .pub-email {
+  color: var(--ok);
+}
+.bdesc,
+.bperm {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bdesc {
+  color: var(--text);
+}
+.bperm {
+  font-size: 12.5px;
+}
+.bperm .k {
+  color: var(--muted);
+}
+.bmeta {
+  font-size: 12.5px;
+}
+.bnote {
+  font-size: 12.5px;
+}
+.bnote:empty {
+  display: none;
+}
+.bnote.err {
+  color: var(--danger);
+}
+.bmore {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bmore[hidden] {
+  display: none;
+}

@@ -1,0 +1,28 @@
+web: read extension resources from the page's own origin when it is not served over http(s)
+
+The web workbench reads the resources of its built-in extensions (themes, grammars, snippets, language configurations) from the origin
+that serves it: FileAccess.asBrowserUri() turns them into URLs under _VSCODE_FILE_ROOT, and the extension service registers a
+fetch-backed, read-only file system provider (FetchFileSystemProvider) so that the file service can read them. It registers that provider
+for http and https only. A workbench served from another scheme, an embedder's own protocol (a custom protocol of an Electron host, here
+the vmapp-ui:// scheme of a vmapp window), gets `ENOPRO: No file system provider found` for every one of those resources: the default
+color theme fails to load and no built-in grammar, snippet or language configuration is read.
+
+This registers the same provider for the page's own scheme when it is neither http nor https and no provider exists for it yet. The
+resources are then fetched from the page's origin exactly as they are over http(s). Nothing changes for a page served over http(s).
+
+--- a/src/vs/workbench/services/extensions/browser/extensionService.ts
++++ b/src/vs/workbench/services/extensions/browser/extensionService.ts
+@@ -116,6 +116,13 @@
+ 		const provider = new FetchFileSystemProvider();
+ 		this._register(this._fileService.registerProvider(Schemas.http, provider));
+ 		this._register(this._fileService.registerProvider(Schemas.https, provider));
++
++		// A workbench served from another scheme than http(s) (an embedder's own protocol) reads the resources of its built-in
++		// extensions from its own origin as well.
++		const pageScheme = mainWindow.location.protocol.replace(/:$/, '');
++		if (pageScheme !== Schemas.http && pageScheme !== Schemas.https && !this._fileService.getProvider(pageScheme)) {
++			this._register(this._fileService.registerProvider(pageScheme, provider));
++		}
+ 	}
+
+ 	protected override async _initialize(): Promise<void> {

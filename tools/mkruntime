@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# mkruntime <runtime dir> <out.img>
+#
+# Builds a vmapp runtime image (SPEC section 3) from runtimes/<name>/Dockerfile as a read-only EROFS image:
+#   1. docker build --platform linux/arm64, then docker export of a container of the image
+#   2. in the pinned helper image vmapp-mkerofs:1 (tools/mkerofs.Dockerfile): makes the mount points
+#      app data host proc sys dev tmp run empty directories (tmp is 1777), writes /etc/vmapp/runtime.env
+#      (the image's ENV, read by vmapp-init) and a minimal /etc/hosts, then mkfs.erofs -zlz4hc,12 -T0 with a
+#      fixed UUID derived from the runtime name
+# There is no agent.json: the host sends the start command (control op "start").
+#
+# If the runtime dir holds context.json such as {"copy":{"sdk-node":"../../sdk/node"}}, the build context is
+# assembled in a scratch directory: the runtime dir plus a copy of each source (relative to the runtime dir)
+# at the given destination inside the context.
+#
+# Docker is a build-time dependency only. The output is reproducible for the same input (fixed timestamp and
+# UUID). Scratch files go to $VMAPP_WORK/mkruntime (default vmapp/out/work/mkruntime).
+# Adapted from agent-vm/tools/mkagent (commit 8f0c069).
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: mkruntime <runtime dir> <out.img>" >&2
+  exit 2
+fi
+DIR="$1"
+OUT="$2"
+[ -d "$DIR" ] || { echo "mkruntime: not a directory: $DIR" >&2; exit 2; }
+[ -f "$DIR/Dockerfile" ] || { echo "mkruntime: no Dockerfile in $DIR" >&2; exit 2; }
+DIR="$(cd "$DIR" && pwd)"
+NAME="$(basename "$DIR")"
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VMAPP="$(cd "$SELF_DIR/.." && pwd)"
+# Scratch space: $VMAPP_WORK/mkruntime (default vmapp/out/work/mkruntime, git-ignored).
+SCRATCH="${VMAPP_WORK:-$VMAPP/out/work}/mkruntime"
+HELPER="vmapp-mkerofs:1"
+PLATFORM="linux/arm64"
+CTX_TAG="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+TAG="vmapp-runtime-build:$NAME-$CTX_TAG"
+CID=""
+CTX="$DIR"
+CTX_TMP=""
+T0=$SECONDS
+
+# Fixed filesystem UUID per runtime name (an RFC 4122 style v5-looking id from sha256 of the name).
+H="$(printf 'vmapp-runtime:%s' "$NAME" | shasum -a 256 | cut -d' ' -f1)"
+FS_UUID="${H:0:8}-${H:8:4}-5${H:13:3}-a${H:17:3}-${H:20:12}"
+
+mkdir -p "$SCRATCH"
+mkdir -p "$(dirname "$OUT")"
+TMP_OUT="$SCRATCH/mkruntime-$NAME-$$.img"
+
+cleanup() {
+  [ -n "$CID" ] && docker rm -f "$CID" >/dev/null 2>&1 || true
+  docker rmi -f "$TAG" >/dev/null 2>&1 || true
+  rm -f "$TMP_OUT"
+  case "$CTX_TMP" in
+    "$SCRATCH"/mkruntime-ctx-*) if [ -d "$CTX_TMP" ] && [ ! -L "$CTX_TMP" ]; then find "$CTX_TMP" -depth -delete; fi ;;
+  esac
+}
+trap cleanup EXIT
+
+# Build context: the runtime dir itself, or an assembled copy when context.json asks for extra sources.
+if [ -f "$DIR/context.json" ]; then
+  command -v node >/dev/null 2>&1 || { echo "mkruntime: node is needed to read context.json" >&2; exit 1; }
+  CTX_TMP="$SCRATCH/mkruntime-ctx-$NAME-$$"
+  mkdir -p "$CTX_TMP"
+  cp -R "$DIR/." "$CTX_TMP/"
+  rm -f "$CTX_TMP/context.json"
+  PAIRS="$(node -e '
+const fs = require("fs");
+const die = (m) => { process.stderr.write("mkruntime: context.json: " + m + "\n"); process.exit(1); };
+let j;
+try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) { die(String(e.message || e)); }
+const copy = (j && j.copy) || {};
+if (typeof copy !== "object" || Array.isArray(copy)) die("\"copy\" must be an object");
+for (const [dest, src] of Object.entries(copy)) {
+  if (typeof src !== "string" || src === "") die("source of " + dest + " must be a path");
+  if (dest === "" || dest.startsWith("/") || dest.split("/").some((c) => c === ".." || c === "")) die("bad destination " + JSON.stringify(dest));
+  if (/[\t\n]/.test(dest + src)) die("tabs/newlines are not allowed in paths");
+  process.stdout.write(dest + "\t" + src + "\n");
+}
+' "$DIR/context.json")"
+  while IFS=$'\t' read -r dest src; do
+    [ -n "$dest" ] || continue
+    if [ ! -e "$DIR/$src" ]; then
+      echo "mkruntime: context.json: source not found: $DIR/$src" >&2
+      exit 1
+    fi
+    mkdir -p "$(dirname "$CTX_TMP/$dest")"
+    cp -R "$DIR/$src" "$CTX_TMP/$dest"
+  done <<< "$PAIRS"
+  CTX="$CTX_TMP"
+fi
+
+if ! docker image inspect "$HELPER" >/dev/null 2>&1; then
+  echo "==> building helper image $HELPER (first use)" >&2
+  docker build --platform "$PLATFORM" -t "$HELPER" - < "$SELF_DIR/mkerofs.Dockerfile" >&2
+fi
+
+echo "==> docker build $NAME" >&2
+BUILD_LOG="$SCRATCH/mkruntime-$NAME-$$.build.log"
+NOCACHE=()
+[ "${MKRUNTIME_NO_CACHE:-}" = "1" ] && NOCACHE=(--no-cache)
+if docker build --progress=plain ${NOCACHE[@]+"${NOCACHE[@]}"} --platform "$PLATFORM" -t "$TAG" "$CTX" >"$BUILD_LOG" 2>&1; then
+  rm -f "$BUILD_LOG"
+else
+  cat "$BUILD_LOG" >&2
+  rm -f "$BUILD_LOG"
+  echo "mkruntime: docker build failed" >&2
+  exit 1
+fi
+
+# Sanity: arm64 Linux image. The image's ENV goes to /etc/vmapp/runtime.env (one K=V per line).
+ARCH="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$TAG")"
+[ "$ARCH" = "linux/arm64" ] || { echo "mkruntime: image is $ARCH, need linux/arm64" >&2; exit 1; }
+RUNTIME_ENV_B64="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$TAG" | base64 | tr -d '\n')"
+
+# A command is given because an image without CMD/ENTRYPOINT (FROM scratch) cannot be created otherwise.
+CID="$(docker create --platform "$PLATFORM" "$TAG" /vmapp-never-run)"
+
+echo "==> docker export | mkfs.erofs (helper $HELPER, uuid $FS_UUID)" >&2
+# shellcheck disable=SC2016
+PACK='
+set -eu
+mkdir /rootfs
+tar -x -p --numeric-owner -f - -C /rootfs
+cd /rootfs
+# Docker leaves placeholder entries in /dev /proc /sys (and a stray marker file); the mount points must be empty.
+rm -f .dockerenv
+for d in dev proc sys run tmp; do
+  mkdir -p "$d"
+  find "$d" -mindepth 1 -delete
+done
+for d in app data host; do
+  mkdir -p "$d"
+  if [ -n "$(ls -A "$d")" ]; then
+    echo "mkruntime: the image has files in /$d, but /app /data /host must be empty mount points" >&2
+    exit 1
+  fi
+done
+chown 0:0 app data host proc sys dev tmp run
+chmod 0755 app data host proc sys dev run
+chmod 1777 tmp
+# The image environment, for vmapp-init (it fills what the start request does not set).
+mkdir -p etc/vmapp
+printf "%s" "$RUNTIME_ENV_B64" | base64 -d > etc/vmapp/runtime.env
+chown 0:0 etc/vmapp etc/vmapp/runtime.env
+chmod 0755 etc/vmapp
+chmod 0644 etc/vmapp/runtime.env
+# Docker exports an empty /etc/hosts; the core has no network, but localhost must still resolve.
+if [ ! -s etc/hosts ]; then
+  printf "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n" > etc/hosts
+  chown 0:0 etc/hosts
+  chmod 0644 etc/hosts
+fi
+mkfs.erofs -zlz4hc,12 -T0 -U "$FS_UUID" /tmp/runtime.img /rootfs >/tmp/mkfs.log 2>&1 || { tr "\033" "\n" </tmp/mkfs.log >&2; exit 1; }
+cat /tmp/runtime.img
+'
+docker export "$CID" | docker run --rm -i --platform "$PLATFORM" \
+  -e RUNTIME_ENV_B64="$RUNTIME_ENV_B64" -e FS_UUID="$FS_UUID" "$HELPER" sh -c "$PACK" > "$TMP_OUT"
+
+[ -s "$TMP_OUT" ] || { echo "mkruntime: packing produced an empty image" >&2; exit 1; }
+mv -f "$TMP_OUT" "$OUT"
+
+SIZE="$(wc -c < "$OUT" | tr -d ' ')"
+echo "mkruntime: wrote $OUT ($SIZE bytes, $(( SECONDS - T0 )) s)"

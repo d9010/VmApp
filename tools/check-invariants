@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+'use strict';
+// vmapp/tools/check-invariants: static checks of the mechanical invariants (GOVERNANCE.md), the automated part of
+// contribution review (docs/REVIEWING.md steps 2-4). The rules live in check-invariants.d/. Node built-ins only.
+// Exit: 0 = no violation, 1 = violation, 2 = internal error.
+
+const { main, USAGE } = require('./check-invariants.d');
+
+try {
+  process.exitCode = main(process.argv.slice(2));
+} catch (e) {
+  process.stderr.write(`check-invariants: ${e && e.message ? e.message : e}\n`);
+  if (/^unknown argument|needs a value/.test(String(e && e.message))) process.stderr.write(USAGE + '\n');
+  else if (process.env.CHECK_INVARIANTS_DEBUG && e && e.stack) process.stderr.write(e.stack + '\n');
+  process.exitCode = 2;
+}

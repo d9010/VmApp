@@ -1,0 +1,58 @@
+title: Security
+description: What D9010 VmApp protects you from, what it does not, and how you can check the claims yourself.
+---
+<p class="kicker">Promises and limits</p>
+<h1>Security</h1>
+<p class="lead">A security claim is only worth something if it comes with its limits. Here are both.</p>
+
+<h2>What the platform promises</h2>
+<p>When you run an app in the launcher:</p>
+<div class="grid">
+  <div><h3>Only the files you gave it</h3><p>The app's engine runs in its own VM. Folders you didn't grant do not exist inside it. Your choice of read, read and write, or write-only is enforced by the hypervisor, outside the app's reach.</p></div>
+  <div><h3>No internet unless you name the sites</h3><p>The VM has no network connection at all. The only way out is a proxy run by the launcher, which lets through only the hosts you allowed for that app. It never reaches your own network.</p></div>
+  <div><h3>No app code runs on your Mac as you</h3><p>The app's window runs in a locked-down browser engine with no file access and no internet. The only code on your Mac with your rights is the launcher itself.</p></div>
+  <div><h3>What you installed is what you reviewed</h3><p>Every file in a package is fingerprinted, and checked at install and again when it is shown. An update that asks for more (a new website, a new port) stops and asks you again.</p></div>
+  <div><h3>A clean start every time</h3><p>The system, the runtime and the app's code are read-only. Temporary files vanish when the app stops. A VM cannot outlive the launcher.</p></div>
+  <div><h3>You can see and you can revoke</h3><p>The Inspector shows every message and every connection. Taking back a permission closes the connections it was using at once.</p></div>
+</div>
+
+<h2>What it does not protect you from</h2>
+<div class="warn"><p><strong>Stated plainly.</strong> The same limits are listed in the full <a href="/docs/security-model">security model</a>.</p></div>
+<ul>
+  <li><strong>Misuse of what you granted.</strong> An app with read-and-write access to a folder can change or delete files in it. Prefer read-only and write-only.</li>
+  <li><strong>The folder-plus-website pair.</strong> An app that can read a folder and reach a website can send what it reads there. The launcher warns you in words when you grant both; it cannot stop you. Grant the pair only to apps you trust.</li>
+  <li><strong>What is inside the encrypted connection.</strong> The launcher shows which host an app talks to and how much data, not what the data is.</li>
+  <li><strong>Browser-engine attacks.</strong> Each app's window uses the same engine as Chrome. A serious flaw in it, combined with a sandbox escape, would be as dangerous as in a browser tab. Keep the launcher updated.</li>
+  <li><strong>Escaping the VM.</strong> Rare and valuable, but not impossible. This is the main remaining risk on the engine side.</li>
+  <li><strong>Allowed hardware.</strong> An app you let use the microphone can record. An app you let use the GPU can use as much of it as macOS gives. The GPU path is experimental and off by default.</li>
+  <li><strong>Not built yet.</strong> Publisher signatures (so you can verify <em>who</em> made a package), UDP and inbound network connections, the camera, and per-app resource accounting.</li>
+</ul>
+
+<h2>Who the platform assumes might be an attacker</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Who</th><th>Wants to&hellip;</th><th>What stands in the way</th></tr></thead>
+  <tbody>
+    <tr><td>A malicious app engine</td><td>Read or encrypt your files</td><td>The VM boundary. Only granted folders exist.</td></tr>
+    <tr><td>A malicious app engine</td><td>Send your data out</td><td>No network device. Only hosts you named. Every connection logged.</td></tr>
+    <tr><td>A malicious app engine</td><td>Reach your router or other computers</td><td>Rules name hosts, never addresses. The launcher looks the name up itself and refuses any private or local answer.</td></tr>
+    <tr><td>A malicious app engine</td><td>Attack other apps</td><td>One VM per app. Separate data folders.</td></tr>
+    <tr><td>A malicious app window</td><td>Touch files, network or devices</td><td>Browser sandbox, no Node, strict content policy, blocked popups.</td></tr>
+    <tr><td>A malicious app window</td><td>Fake a permission prompt</td><td>Real decisions are native dialogs that name the app. The app cannot draw them.</td></tr>
+    <tr><td>Someone who tampers with a package</td><td>Swap code after you reviewed it</td><td>Per-file fingerprints checked at install and at use.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>How you can check this yourself</h2>
+<ul>
+  <li><strong>It is open source.</strong> The code, including the launcher and the VM layer, is on <a href="{{repo}}">GitHub</a> under the MIT licence.</li>
+  <li><strong>Builds are reproducible.</strong> The base system, kernel, runtimes and app packages rebuild to identical bytes, so anyone can rebuild and compare.</li>
+  <li><strong>Releases are signed and notarized</strong> by Apple, with checksums published next to the download.</li>
+  <li><strong>The rules are numbered.</strong> <a href="/docs/governance">Governance</a> lists them; every change is reviewed against them, and protected parts need the maintainer's sign-off.</li>
+  <li><strong>The full security model</strong> is in the <a href="/docs/security-model">documentation</a>.</li>
+</ul>
+
+<div class="note">
+  <p><strong>Found a problem?</strong> Please report it privately. The process is in the <a href="/docs/security-policy">security policy</a>. This is a first public build, so careful eyes are welcome.</p>
+</div>

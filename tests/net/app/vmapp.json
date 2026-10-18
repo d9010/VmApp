@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.nettest",
+  "name": "Net Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "Test app for the network permission: fetches the URLs the test script gives it, through the allowlist proxy.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "dialogs": false,
+    "external": false,
+    "network": [
+      { "host": "registry.npmjs.org", "purpose": "Looks up package versions (the test asks for left-pad)" }
+    ]
+  }
+}

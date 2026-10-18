@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.localllm",
+  "name": "Local LLM",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "Chat with a language model (llama.cpp) that runs inside a VM. Your conversations never leave the Mac; the only network access is downloading a model from Hugging Face. Optionally uses the Mac's GPU.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 4096,
+    "cpus": 4
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "network": [
+      { "host": "huggingface.co", "purpose": "Downloads the model you pick (a GGUF file of 0.5 to 4.7 GB) from Hugging Face, and nothing else" },
+      { "host": "us.aws.cdn.hf.co", "purpose": "Hugging Face redirects every model download to this storage host, where the file itself is served" }
+    ],
+    "host": [
+      { "cap": "gpu", "purpose": "Runs the model's heavy maths on the Mac's GPU instead of the VM's CPU, only while you have 'Use the Mac's GPU' switched on" }
+    ],
+    "dialogs": true,
+    "external": false
+  }
+}

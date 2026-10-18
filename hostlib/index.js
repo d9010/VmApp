@@ -1,0 +1,30 @@
+'use strict';
+
+module.exports = {
+  tar: require('./tar'),
+  cpio: require('./cpio'),
+  manifest: require('./manifest'),
+  package: require('./package'),
+  store: require('./store'),
+  updates: require('./updates'),
+  capabilities: require('./capabilities'),
+  network: require('./network'),
+  resources: require('./resources'),
+  hostproc: require('./hostproc'),
+  gpu: require('./gpu'),
+  bridge: require('./bridge'),
+  session: require('./session'),
+  headless: require('./headless'),
+  // convenience re-exports
+  Store: require('./store').Store,
+  AppSession: require('./session').AppSession,
+  BridgeClient: require('./bridge').BridgeClient,
+  FakeWindowManager: require('./headless').FakeWindowManager,
+  FakeDialogs: require('./headless').FakeDialogs,
+  FakeCapabilitiesUi: require('./headless').FakeCapabilitiesUi,
+  FakeClipboard: require('./headless').FakeClipboard,
+  HostCapabilities: require('./capabilities').HostCapabilities,
+  Catalog: require('./capabilities').Catalog,
+  GpuBroker: require('./gpu').GpuBroker,
+  pack: require('./package').pack,
+};

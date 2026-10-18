@@ -1,0 +1,47 @@
+diff --git a/src/virtio/vulkan/vn_device_memory.c b/src/virtio/vulkan/vn_device_memory.c
+index 8b6eb4c..9d2c58d 100644
+--- a/src/virtio/vulkan/vn_device_memory.c
++++ b/src/virtio/vulkan/vn_device_memory.c
+@@ -31,6 +31,14 @@ vn_device_memory_alloc_simple(struct vn_device *dev,
+ {
+    VkDevice dev_handle = vn_device_to_handle(dev);
+    VkDeviceMemory mem_handle = vn_device_memory_to_handle(mem);
++
++   /* SPIKE (vmapp gpu/venus-spike): the host VkDeviceMemory is vkMapMemory'd
++    * and mapped into the guest in 16K host pages, so the allocation itself
++    * must be a multiple of 16K (slp/mesa-libkrun-vulkan hack).
++    */
++   ((VkMemoryAllocateInfo *)alloc_info)->allocationSize =
++      align64(alloc_info->allocationSize, 16384);
++
+    if (VN_PERF(NO_ASYNC_MEM_ALLOC)) {
+       return vn_call_vkAllocateMemory(dev->primary_ring, dev_handle,
+                                       alloc_info, NULL, &mem_handle);
+diff --git a/src/virtio/vulkan/vn_renderer_virtgpu.c b/src/virtio/vulkan/vn_renderer_virtgpu.c
+index 1e3a16d..5d4b3d7 100644
+--- a/src/virtio/vulkan/vn_renderer_virtgpu.c
++++ b/src/virtio/vulkan/vn_renderer_virtgpu.c
+@@ -1048,7 +1048,12 @@ virtgpu_init_params(struct virtgpu *gpu)
+       }
+    }
+
+-   gpu->blob_alignment = 1;
++   /* SPIKE (vmapp gpu/venus-spike): the host is libkrun on macOS, which maps
++    * blobs into the guest in units of the host's 16K pages. The guest kernel
++    * has no VIRTGPU_PARAM_BLOB_ALIGNMENT, so assume 16K. (Same idea as the
++    * slp/mesa-libkrun-vulkan "force 16k alignment" hack.)
++    */
++   gpu->blob_alignment = 16384;
+    val = virtgpu_ioctl_getparam(gpu, VIRTGPU_PARAM_HOST_VISIBLE);
+    if (val) {
+       gpu->bo_blob_mem = VIRTGPU_BLOB_MEM_HOST3D;
+@@ -1058,7 +1063,8 @@ virtgpu_init_params(struct virtgpu *gpu)
+        */
+       const uint32_t blob_alignment =
+          virtgpu_ioctl_getparam(gpu, VIRTGPU_PARAM_BLOB_ALIGNMENT);
+-      if (util_is_power_of_two_nonzero(blob_alignment))
++      if (util_is_power_of_two_nonzero(blob_alignment) &&
++          blob_alignment > gpu->blob_alignment)
+          gpu->blob_alignment = blob_alignment;
+    } else {
+       val = virtgpu_ioctl_getparam(gpu, VIRTGPU_PARAM_GUEST_VRAM);

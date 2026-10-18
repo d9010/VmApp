@@ -1,0 +1,32 @@
+From: vmapp <vmapp@example.invalid>
+Subject: [PATCH 2/4] ui: highlight code with shiki's JavaScript regex engine instead of the WebAssembly one
+
+src/lib/highlighter.ts creates the code highlighter with shiki's default engine, Oniguruma compiled to WebAssembly. A page under a
+Content-Security-Policy with `script-src 'self'` (no 'wasm-unsafe-eval' and no 'unsafe-eval') cannot compile WebAssembly: the highlighter
+would never be created and code blocks would stay uncoloured. shiki ships a JavaScript regex engine for this (`shiki/engine/javascript`),
+which Streamdown, the library that renders the messages, already uses for its own code blocks. The themes and languages are unchanged.
+
+---
+ app/ui/app/src/lib/highlighter.ts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/app/ui/app/src/lib/highlighter.ts b/app/ui/app/src/lib/highlighter.ts
+--- a/app/ui/app/src/lib/highlighter.ts
++++ b/app/ui/app/src/lib/highlighter.ts
+@@ -1,4 +1,5 @@
+ import { createHighlighter } from "shiki";
++import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+ import type { ThemeRegistration } from "shiki";
+
+ const oneLightTheme: ThemeRegistration = {
+@@ -129,6 +130,10 @@ export let highlighter: Awaited<ReturnType<typeof createHighlighter>> | null =
+   null;
+
+ export const highlighterPromise = createHighlighter({
++  // The JavaScript regex engine instead of the default Oniguruma WebAssembly one: a page under a strict
++  // Content-Security-Policy (script-src 'self', no 'wasm-unsafe-eval') cannot compile WebAssembly. Streamdown, which
++  // renders the code blocks in messages, already uses this engine.
++  engine: createJavaScriptRegexEngine({ forgiving: true }),
+   themes: [oneLightTheme, oneDarkTheme],
+   langs: [
+     "javascript",

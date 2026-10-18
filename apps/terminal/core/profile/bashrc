@@ -1,0 +1,15 @@
+# The Terminal app's "Shell" profile: an interactive bash in your workspace folder.
+# Read-only (it is part of the app); put your own settings in /data/.bashrc, which is read at the end.
+
+export PS1='\[\e[1;32m\]D9010 VmApp\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+export HISTFILE=/data/.bash_history
+export HISTSIZE=5000
+export HISTCONTROL=ignoredups
+shopt -s histappend checkwinsize
+PROMPT_COMMAND='history -a'
+
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias grep='grep --color=auto'
+
+if [ -f /data/.bashrc ]; then . /data/.bashrc; fi

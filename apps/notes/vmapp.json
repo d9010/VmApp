@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "Markdown notes in a folder you choose. A Node app written for Electron, ported by changing one require.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "notes", "access": "readwrite", "purpose": "The folder where your notes are kept" },
+      { "name": "export", "access": "writeonly", "purpose": "Where exported HTML files are delivered" }
+    ],
+    "dialogs": true,
+    "external": false
+  }
+}

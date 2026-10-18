@@ -1,0 +1,21 @@
+// The D9010 VmApp registry API on Cloudflare Workers: api.vmapp.dev
+// A Worker routes every request to ONE Durable Object (the single writer that holds the event log and the state),
+// and the packages live in an R2 bucket. See README.md.
+{
+  "name": "vmapp-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Registry"] }],
+  "r2_buckets": [{ "binding": "PACKAGES", "bucket_name": "vmapp-packages" }],
+  "vars": {
+    "PUBLIC_URL": "https://api.vmapp.dev",
+    "MAX_PACKAGE_MIB": "512"
+  },
+  // api.vmapp.dev: a Workers custom domain on the vmapp.dev zone (the DNS record and the certificate are created on deploy)
+  "routes": [{ "pattern": "api.vmapp.dev", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

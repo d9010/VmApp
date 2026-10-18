@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- `vmapp new` replaces the word Starter in the <title> and the <h1> below with your app's name. -->
+  <title>Starter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    The loader serves this page with a strict Content-Security-Policy: scripts only from this app's own files,
+    no network at all. That is why the script is a separate file (<script src>), and there are no inline
+    scripts, no onclick="..." attributes and no CDN links.
+  -->
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Starter</h1>
+    <p class="lead">This window is the <b>UI</b>. Everything it shows comes from the <b>core</b>, a program running in
+      a small sandboxed Linux VM. Each card below is one thing an app can do.</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. Info</h2>
+      <p class="hint">Asks the core who it is. Note the Linux kernel and uid 1000: it is not running on your Mac.</p>
+      <dl id="info" class="facts"></dl>
+    </section>
+
+    <section>
+      <h2>2. Your documents folder</h2>
+      <p class="hint">Lists a folder you shared when the app was first opened. If you skipped it, the core gets nothing.</p>
+      <button id="documents-refresh" type="button">List files</button>
+      <p id="documents-status" class="status"></p>
+      <ul id="documents-list" class="files"></ul>
+    </section>
+
+    <section>
+      <h2>3. Counter</h2>
+      <p class="hint">Saved by the core in its private data folder. Quit and reopen the app: the number stays.</p>
+      <p class="big"><span id="counter-value">0</span> <small id="counter-launches"></small></p>
+      <button id="counter-increment" type="button">Add one</button>
+    </section>
+
+    <section>
+      <h2>4. Open a file</h2>
+      <p class="hint">A native dialog appears. The core can read only the one file you pick, not the folder around it.</p>
+      <button id="open-file" type="button">Choose a text file...</button>
+      <p id="open-status" class="status"></p>
+      <pre id="open-preview" class="preview" hidden></pre>
+    </section>
+
+    <section>
+      <h2>5. Save a file</h2>
+      <p class="hint">A native dialog asks where to save. The core never learns the real location.</p>
+      <textarea id="save-text" rows="3" aria-label="Text to save">Hello from inside the VM!</textarea>
+      <button id="save-file" type="button">Save as...</button>
+      <p id="save-status" class="status"></p>
+    </section>
+
+    <section>
+      <h2>6. Open a link</h2>
+      <p class="hint">The app has no network. It can only ask your computer to open a link, and you must confirm.</p>
+      <button id="open-link" type="button">Open example.com</button>
+      <p id="link-status" class="status"></p>
+    </section>
+
+    <section>
+      <h2>7. Live events</h2>
+      <p class="hint">The core pushes a message to this window every couple of seconds, without being asked.</p>
+      <p class="big"><span id="tick-count">waiting...</span></p>
+    </section>
+  </main>
+</body>
+</html>

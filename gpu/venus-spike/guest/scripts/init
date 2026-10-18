@@ -1,0 +1,44 @@
+#!/bin/bash
+# PID 1 of the Venus spike guest. Mounts the basics, runs /spike/tests/<spike.test>.sh, powers off.
+# Kernel command line knobs:  spike.test=NAME  spike.mesa=stock|patched  spike.vn=VN_DEBUG  spike.args="..."
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root TERM=linux
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /dev/shm /tmp /run /models /work
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+mount -t tmpfs tmpfs /run 2>/dev/null
+
+for a in $(cat /proc/cmdline); do
+    case "$a" in
+        spike.*=*) k=${a%%=*}; v=${a#*=}; k=${k#spike.}; export "SPIKE_$(echo "$k" | tr a-z A-Z)=$v" ;;
+    esac
+done
+# Optional virtiofs shares (tags given by the launcher): models (read-only), work (read-write, results).
+mkdir -p /cts /spike-live
+mount -t virtiofs models /models 2>/dev/null && echo "[init] /models mounted"
+mount -t virtiofs work /work 2>/dev/null && echo "[init] /work mounted"
+mount -t virtiofs cts /cts 2>/dev/null && echo "[init] /cts mounted"
+# Development convenience: a host folder with newer test scripts shadows the baked-in /spike.
+if mount -t virtiofs spike /spike-live 2>/dev/null; then mount --bind /spike-live /spike && echo "[init] /spike overlaid from host"; fi
+
+echo "[init] spike guest up: $(uname -srm), test='${SPIKE_TEST:-shell}' mesa='${SPIKE_MESA:-patched}'"
+rc=0
+if [ -n "${SPIKE_TEST:-}" ] && [ -f "/spike/tests/${SPIKE_TEST}.sh" ]; then
+    /bin/bash "/spike/tests/${SPIKE_TEST}.sh"
+    rc=$?
+else
+    echo "[init] no test selected; starting a shell on the console"
+    /bin/bash
+    rc=$?
+fi
+echo "[init] SPIKE-DONE rc=$rc"
+sync
+echo o > /proc/sysrq-trigger
+sleep 3
+echo b > /proc/sysrq-trigger
+sleep 60

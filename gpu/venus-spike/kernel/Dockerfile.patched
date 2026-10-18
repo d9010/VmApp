@@ -1,0 +1,67 @@
+# Spike variant of vmapp/kernel/Dockerfile: identical stages and pins, plus ONE extra step in the kernel-config stage
+# that applies the patches in ctx/patches/*.patch (patch -p1) to the verified kernel source before the config is
+# merged. Used by gpu/venus-spike/kernel/build.sh --patched. The main kernel/Dockerfile is not touched.
+#
+# Derived from vmapp/kernel/Dockerfile (same licence as the rest of vmapp).
+
+FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55 AS kernel-toolchain
+ARG UBUNTU_SNAPSHOT
+ENV DEBIAN_FRONTEND=noninteractive LC_ALL=C TZ=UTC
+COPY container/apt-snapshot.sh /opt/vmapp-build/apt-snapshot.sh
+RUN sh /opt/vmapp-build/apt-snapshot.sh "${UBUNTU_SNAPSHOT}" "main" \
+ && apt-get install -y --no-install-recommends \
+        build-essential bc bison flex libssl-dev libelf-dev gawk python3 \
+        xz-utils curl ca-certificates gnupg dirmngr patch \
+ && rm -rf /var/lib/apt/lists/*
+
+FROM kernel-toolchain AS kernel-source
+ARG KERNEL_VERSION
+ARG KERNEL_URL_BASE
+ARG KERNEL_SHA256
+ARG KERNEL_FPR_AUTOSIGNER
+ARG KERNEL_FPR_GREGKH
+ARG KERNEL_FPR_TORVALDS
+COPY container/fetch-kernel.sh /opt/vmapp-build/fetch-kernel.sh
+RUN --mount=type=bind,source=dl,target=/ctx/dl \
+    sh /opt/vmapp-build/fetch-kernel.sh \
+        "${KERNEL_VERSION}" "${KERNEL_URL_BASE}" "${KERNEL_SHA256}" \
+        "${KERNEL_FPR_AUTOSIGNER}" "${KERNEL_FPR_GREGKH}" "${KERNEL_FPR_TORVALDS}" \
+        /build /out/kernel-source-verification.txt
+
+# SPIKE: apply the patches (this is the only difference from kernel/Dockerfile)
+FROM kernel-source AS kernel-patched
+ARG KERNEL_VERSION
+COPY patches/ /ctx/patches/
+RUN cd /build/linux-${KERNEL_VERSION} \
+ && for p in /ctx/patches/*.patch; do echo "applying $p"; patch -p1 --no-backup-if-mismatch < "$p"; done
+
+FROM kernel-patched AS kernel-config
+ARG KERNEL_VERSION
+COPY container/kernel-config.sh /opt/vmapp-build/kernel-config.sh
+COPY vmapp-guest.config /ctx/vmapp-guest.config
+RUN sh /opt/vmapp-build/kernel-config.sh "${KERNEL_VERSION}" /out
+
+FROM kernel-config AS kernel-check
+ARG KERNEL_VERSION
+COPY container/kernel-check.sh /opt/vmapp-build/kernel-check.sh
+COPY kconfig-required.txt kconfig-forbidden.txt check-kconfig.sh /ctx/
+RUN sh /opt/vmapp-build/kernel-check.sh "${KERNEL_VERSION}" /out
+
+FROM kernel-config AS kernel-build
+ARG KERNEL_VERSION
+ARG SOURCE_DATE_EPOCH
+ARG KBUILD_BUILD_USER
+ARG KBUILD_BUILD_HOST
+COPY container/kernel-build.sh /opt/vmapp-build/kernel-build.sh
+RUN sh /opt/vmapp-build/kernel-build.sh "${KERNEL_VERSION}" /out
+
+FROM scratch AS kernel-config-raw
+COPY --from=kernel-config /out/ /
+
+FROM scratch AS kernel-config-out
+COPY --from=kernel-config /out/ /
+COPY --from=kernel-check /out/kconfig-check.txt /kconfig-check.txt
+
+FROM scratch AS kernel-out
+COPY --from=kernel-build /out/ /
+COPY --from=kernel-check /out/kconfig-check.txt /kconfig-check.txt

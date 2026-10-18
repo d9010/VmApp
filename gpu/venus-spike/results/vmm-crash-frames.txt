@@ -1,0 +1,27 @@
+=== crash report 135227 (CTS dEQP-VK.synchronization.* in the VM)
+exception: EXC_BAD_ACCESS SIGSEGV KERN_INVALID_ADDRESS at 0x0000000000000008
+faulting thread: vkr-queue-1
+  libvirglrenderer.1.dylib venus_state_cb_retire_fence +168
+  libvirglrenderer.1.dylib vkr_queue_thread +260
+  libvirglrenderer.1.dylib impl_thrd_routine +28
+  libsystem_pthread.dylib  _pthread_start +136
+  libsystem_pthread.dylib  thread_start +8
+=== crash report 135228 (CTS dEQP-VK.synchronization.* in the VM)
+exception: EXC_CRASH SIGABRT 
+faulting thread: com.Metal.CompletionQueueDispatch
+  libsystem_kernel.dylib   __pthread_kill +8
+  libsystem_pthread.dylib  pthread_kill +296
+  libsystem_c.dylib        abort +124
+  libc++abi.dylib          abort_message +132
+  libc++abi.dylib          demangling_terminate_handler() +316
+  libobjc.A.dylib          _objc_terminate() +172
+  libc++abi.dylib          std::__terminate(void (*)()) +16
+  libc++abi.dylib          __cxxabiv1::failed_throw(__cxxabiv1::__cxa_exception*) +88
+  libc++abi.dylib          __cxa_throw +92
+  libc++.1.dylib           std::__1::__throw_system_error[abi:ne190102](std::__1::error_code, char const*) +92
+  libc++.1.dylib           std::__1::__throw_system_error(int, char const*) +32
+  libc++.1.dylib           std::__1::mutex::lock() +40
+  libMoltenVK.dylib        MVKMTLBufferAllocationPool::returnAllocation(MVKMTLBufferAllocation*) +40
+  Metal                    MTLDispatchListApply +52
+  Metal                    -[_MTLCommandBuffer didCompleteWithStartTime:endTime:error:] +612
+  IOGPU                    -[IOGPUMetalCommandBuffer didCompleteWithStartTime:endTime:error:] +220

@@ -1,0 +1,14 @@
+# Flavour "gpu": options that must be on in the final .config, IN ADDITION to kernel/kconfig-required.txt (which
+# stays in force: every PCI-based virtio option, vsock, virtiofs, EROFS, the hardening set ... so this kernel
+# also boots under Virtualization.framework). Same format as the common file.
+
+# --- virtio over MMIO (libkrun) -------------------------------------------------------------
+CONFIG_VIRTIO_MMIO=y
+# Devices come from the device tree only, never from the kernel command line.
+CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=n
+
+# --- virtio-gpu (Venus) --------------------------------------------------------------------------
+CONFIG_DRM=y
+CONFIG_DRM_VIRTIO_GPU=y
+CONFIG_DRM_VIRTIO_GPU_KMS=y
+CONFIG_SYNC_FILE=y

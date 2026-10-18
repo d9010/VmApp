@@ -1,0 +1,24 @@
+[package]
+name = "ptyd"
+version = "1.0.0"
+edition = "2021"
+publish = false
+description = "A tiny PTY bridge for the D9010 VmApp Terminal app: runs one command on a pseudo-terminal and relays it over framed stdin/stdout"
+
+# Standalone package: never a member of a workspace found further up the tree.
+[workspace]
+
+[[bin]]
+name = "ptyd"
+path = "src/main.rs"
+
+[dependencies]
+# Same pinned version the guest (vmapp-init) uses.
+libc = "=0.2.190"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

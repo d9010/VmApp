@@ -1,0 +1,31 @@
+/* The menu-bar popover. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mon-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+.mon-head h1 {
+  margin: 0;
+  font-size: 14px;
+}
+#activity {
+  flex: 0 1 auto; /* as tall as its rows; scrolls only when the window is at its maximum height */
+  overflow: auto;
+  padding: 4px 12px 8px;
+}
+.mon-foot {
+  padding: 6px 12px 10px;
+  font-size: 11px;
+}

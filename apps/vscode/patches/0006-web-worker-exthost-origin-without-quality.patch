@@ -1,0 +1,40 @@
+web: let the web worker extension host's iframe take its origin from a `webEndpointUrlTemplate` that does not name a quality
+
+The web workbench runs the web worker extension host (browser-only extensions) in an iframe. With `webEndpointUrlTemplate` in the
+product configuration the iframe gets an origin of its own (`{{uuid}}` = `v--` + a hash of the page's origin and a stable salt,
+checked again by the iframe's page), as vscode.dev does; without it the iframe has the page's own origin. The template is used only
+when the product has both a commit AND a quality, even when the template names neither, so a build without a quality (Code - OSS,
+whose product.json has none) cannot give the host an origin of its own at all. The webview endpoint, built from the same kind of
+template, has no such condition (environmentService.webviewExternalEndpoint).
+
+This uses the template when it does not contain `{{quality}}` even if the product has no quality. A template that names the quality, and
+every product that has one, behave as before. An embedder whose page cannot or should not frame its own origin (such as a vmapp
+window: `frame-src` admits only isolated `vmapp-frame://` origins) can then give the host an isolated origin by an embedder
+`productConfiguration.webEndpointUrlTemplate`, without claiming a quality it does not have (the quality changes many defaults).
+
+--- a/src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts
++++ b/src/vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts
+@@ -96,18 +96,20 @@
+ 			const webEndpointUrlTemplate = this._productService.webEndpointUrlTemplate;
+ 			const commit = this._productService.commit;
+ 			const quality = this._productService.quality;
+-			if (webEndpointUrlTemplate && commit && quality) {
++			// A template that does not name the quality needs none (a build without a quality, such as Code - OSS, can still give the
++			// iframe an origin of its own)
++			if (webEndpointUrlTemplate && commit && (quality || !webEndpointUrlTemplate.includes('{{quality}}'))) {
+ 				// Try to keep the web worker extension host iframe origin stable by storing it in workspace storage
+ 				const key = 'webWorkerExtensionHostIframeStableOriginUUID';
+ 				let stableOriginUUID = this._storageService.get(key, StorageScope.WORKSPACE);
+ 				if (typeof stableOriginUUID === 'undefined') {
+ 					stableOriginUUID = generateUuid();
+ 					this._storageService.store(key, stableOriginUUID, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+ 				}
+ 				const hash = await parentOriginHash(mainWindow.origin, stableOriginUUID);
+ 				const baseUrl = (
+ 					webEndpointUrlTemplate
+ 						.replace('{{uuid}}', `v--${hash}`) // using `v--` as a marker to require `parentOrigin`/`salt` verification
+ 						.replace('{{commit}}', commit)
+-						.replace('{{quality}}', quality)
++						.replace('{{quality}}', quality ?? '')
+ 				);
+

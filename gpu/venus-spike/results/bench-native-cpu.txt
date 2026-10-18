@@ -1,0 +1,12 @@
+##### qwen2.5-0.5b-instruct-q4_k_m CPU(native)
+| qwen2 1B Q4_K - Medium         | 462.96 MiB |   630.17 M | MTL,BLAS   |      12 |           pp512 |      1587.20 ± 28.51 |
+| qwen2 1B Q4_K - Medium         | 462.96 MiB |   630.17 M | MTL,BLAS   |      12 |           tg128 |       155.49 ± 21.15 |
+##### qwen2.5-1.5b-instruct-q4_k_m CPU(native)
+| qwen2 1.5B Q4_K - Medium       |   1.04 GiB |     1.78 B | MTL,BLAS   |      12 |           pp512 |       562.03 ± 44.94 |
+| qwen2 1.5B Q4_K - Medium       |   1.04 GiB |     1.78 B | MTL,BLAS   |      12 |           tg128 |        72.46 ± 13.61 |
+##### qwen2.5-3b-instruct-q4_k_m CPU(native)
+| qwen2 3B Q4_K - Medium         |   1.95 GiB |     3.40 B | MTL,BLAS   |      12 |           pp512 |       221.02 ± 44.71 |
+| qwen2 3B Q4_K - Medium         |   1.95 GiB |     3.40 B | MTL,BLAS   |      12 |           tg128 |         35.51 ± 1.51 |
+##### Meta-Llama-3.1-8B-Instruct-Q4_K_M CPU(native)
+| llama 8B Q4_K - Medium         |   4.58 GiB |     8.03 B | MTL,BLAS   |      12 |           pp512 |        65.05 ± 25.80 |
+| llama 8B Q4_K - Medium         |   4.58 GiB |     8.03 B | MTL,BLAS   |      12 |           tg128 |         21.83 ± 1.10 |

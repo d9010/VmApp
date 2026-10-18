@@ -1,0 +1,2 @@
+file b in sub
+second line

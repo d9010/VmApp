@@ -1,0 +1,1178 @@
+#!/usr/bin/env node
+'use strict';
+// vmapp CLI: new, pack, inspect, verify, install, list, uninstall, grant, grant-host, grant-net, resources, runtime-install, run --headless,
+// and the registry commands publish, search, get, withdraw, restore, and versions, use, policy, update.
+// Data root: $VMAPP_HOME (default $VMAPP_WORK/vmapp-home; VMAPP_WORK defaults to vmapp/out/work). vmapp-vm / kernel /
+// initramfs default to vmapp/out/ (relative to this file) and can be overridden with VMAPP_VM, VMAPP_KERNEL,
+// VMAPP_INITRAMFS.
+
+const fs = require('fs');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
+
+const ROOT = path.resolve(path.dirname(fs.realpathSync(__filename)), '..');
+const hostlib = require(path.join(ROOT, 'hostlib'));
+const { Store, AppSession, FakeWindowManager, FakeDialogs, FakeCapabilitiesUi, FakeClipboard, HostCapabilities, Catalog } = hostlib;
+const pkg = hostlib.package;
+
+const USAGE = `usage: vmapp <command> [args]
+
+  new <name> [--id com.example.x]       create a new app from a template (default: ./<name>)
+        [--template starter] [--dir PATH]
+  pack <projectDir> [-o out.vmapp]      build a reproducible package (vmapp.json, <ui.root>/, core/, icon.png)
+  inspect <file> [--json]               manifest, package id and sizes
+  verify <file>                         full verification; exit 1 with a precise error if invalid
+  install <file> [--force]              verify and install (--force allows a downgrade)
+  list [--json]                         installed apps
+  uninstall <id> [--purge]              remove the app (--purge also removes its data and grants)
+  grant <id> <folderName> <path> [--access read|readwrite|writeonly]
+                                        save a folder grant non-interactively (default: the requested access)
+  grant <id> <folderName> --none        record that the folder was declined
+  runtime-install <name> <image>        copy a runtime image to $VMAPP_HOME/runtimes/<name>.img
+  run <id> --headless [--script s.mjs]  start the app with a fake window manager
+        [--open PATH]... [--save PATH] [--allow-external] [--message-response N]
+        [--allow-host] [--duration MS] [--timeout MS]
+                                        --allow-host answers every "may <app> use <host capability>?" question with yes
+                                        (default: no); the badge calls are logged
+
+host capabilities (SPEC 8.2; the catalog and grants are edited only here and in the loader's own UI):
+  tool add <id> --name N --path /abs/exe --arg <regex>... [--optional-arg i]... [--map-path-arg i]...
+        [--variadic] [--timeout ms] [--max-output bytes] [--kind tool|shell] [--cwd D] [--description T]
+                                        register a host tool. Each --arg is an anchored regular expression for the
+                                        argument at that position (0-based indices); --map-path-arg turns a VM path
+                                        under a granted /host/... share into the real host path. A shell tool is
+                                        typically: --kind shell --path /bin/sh --arg '^-c$' --arg '^[\\s\\S]{1,10000}$'
+  tool list [--json]                    registered tools
+  tool remove <id>
+  mcp add <id> --name N [--env NAME=VALUE]... -- <command> [args...]
+                                        register a stdio MCP server (command[0] must be an absolute path)
+  mcp list [--json]
+  mcp remove <id>
+  grant-host <appId> <cap> [--mode ask|session|always] [--tools a,b] [--servers x,y]
+                                        grant a capability the app's manifest requests: screen, input, gpu, tool:<id>,
+                                        tool:*, mcp:<id>, mcp:*. Modes: ask (default), session (valid for the next
+                                        run only), always (never for input or shell tools).
+                                        gpu (SPEC 8.6) has one mode, session = "allow while the app runs", on every run
+                                        until you revoke it: a sandboxed GPU server is started with the app
+                                        (grant-host <appId> gpu --mode session).
+                                        A gpu request with "api":"vulkan" (SPEC 8.7, EXPERIMENTAL) is allowed the same way; the
+                                        grant records the API. Such an app runs on the experimental backend only with
+                                        run --headless --experimental-gpu [--gpu-window MiB] (the loader: Host Capabilities,
+                                        "Experimental GPU (Vulkan)").
+  grant-host <appId> <cap> --revoke     remove the grant
+  grant-host <appId> --list             the app's host requests and grants
+
+network (SPEC 8.3; an app reaches only the hosts you allow, through the host's allowlist proxy; nothing is allowed by default):
+  grant-net <appId> <host> [--ports 443,80]
+                                        allow a host the app's manifest lists (the host text exactly as listed, for example
+                                        registry.npmjs.org, *.example.com, or '*': any server on the internet, never your
+                                        local network or this Mac); --ports narrows it to some of the requested ports
+  grant-net <appId> <host> --deny       record that you declined the host
+  grant-net <appId> <host> --revoke     remove the grant (a running app in the loader loses it at once; here it applies at the next run)
+  grant-net <appId> --list              the app's network requests and what is allowed
+
+VM size (SPEC 2.2, 8; the manifest only RECOMMENDS cpus and memory, you choose; defaults: 1 vCPU and the recommended memory):
+  resources <appId>                     the app's recommendation, your choice and what this Mac allows
+  resources <appId> [--cpus N] [--memory MiB] [--recommended]
+                                        choose the VM's vCPUs (at most this Mac's logical cores) and memory (at most half of
+                                        its RAM; MiB); --recommended takes the app's recommendation (lowered to what this Mac
+                                        allows). The choice is kept across updates and applies at the next launch.
+  resources <appId> --default           forget your choice (back to 1 vCPU and the recommended memory)
+
+devices (SPEC 2.2 permissions.devices, SPEC 7, 8.4, 8.8; the microphone, the clipboard and ports, the camera is reserved):
+  grant-device <appId> microphone       allow the app's window to use the microphone while the app runs (the manifest
+                                        must ask for it; the default is not allowed)
+  grant-device <appId> clipboard        allow the app's windows and core to read and change what you copy (keyboard copy
+                                        and paste work without it)
+  grant-device <appId> ports            allow the app to open its servers on this Mac's localhost (only this Mac can
+                                        connect; a running app's forwards close within a second of a revoke)
+  grant-device <appId> <device> --revoke
+  grant-device <appId> --list           the app's device requests and grants
+
+app registry (these are the only commands that use the network):
+  publish <file.vmapp> [--registry URL] [--token T] [--direct]
+        [--name N] [--company C] [--email E] [--url U]
+                                        upload a package; the first publish of an id prints an owner token
+                                        (saved in $VMAPP_HOME/publish-tokens.json and reused for new versions).
+                                        --name/--company/--email/--url describe you; users see them only after
+                                        you verify them on the registry's /publisher page. A registry that keeps
+                                        packages in object storage (GET /api/info) receives the file there directly;
+                                        --direct sends it through the registry instead
+  search [query] [--sort popular|new|updated] [--limit N] [--json]
+  get <id> [--version V] [-o file] [--install] [--force]
+        [--choice compatible|latest --from V]
+                                        download, verify the hashes and the package id, optionally install.
+                                        --choice asks the registry for the highest non-withdrawn version
+                                        (compatible = same major; for 0.x the same minor) from version V
+                                        (default: the installed version)
+  withdraw <id> <version> --reason "why" [--registry URL] [--token T]
+                                        mark a version as withdrawn (owner token). It is never offered as
+                                        an update, but can still be downloaded by its exact version
+  restore <id> <version> [--registry URL] [--token T]
+                                        undo a withdrawal
+
+versions and updates (SPEC 8.1; the last two and \`versions --remote\` contact the app's registry):
+  versions <id> [--remote] [--json]     installed versions, current, update choice, source;
+                                        --remote also lists the versions in the registry
+  use <id> <version>                    switch to an installed version (going back warns, and sets "manual")
+  policy <id> [manual|compatible|latest]
+                                        show or set the update choice (manual = stay on this version)
+  update <id> [--yes] [--choice compatible|latest]
+                                        check, show new permissions, install. If the new version asks for more
+                                        than the current one, nothing is applied without --yes (exit 3)
+
+environment: VMAPP_HOME, VMAPP_VM, VMAPP_KERNEL, VMAPP_INITRAMFS,
+             VMAPP_REGISTRY (default http://127.0.0.1:8790)
+`;
+
+const VALUE_FLAGS = new Set(['o', 'output', 'access', 'script', 'open', 'save', 'message-response', 'duration', 'timeout', 'home', 'id', 'template', 'dir', 'registry', 'token', 'sort', 'version', 'limit', 'name', 'company', 'email', 'url', 'choice', 'from', 'reason', 'path', 'arg', 'optional-arg', 'map-path-arg', 'max-output', 'kind', 'cwd', 'description', 'env', 'mode', 'tools', 'servers', 'ports', 'cpus', 'memory', 'gpu-window']);
+const MULTI_FLAGS = new Set(['open', 'arg', 'optional-arg', 'map-path-arg', 'env']);
+
+function parseArgs(argv) {
+  const pos = [];
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--') {
+      pos.push(...argv.slice(i + 1));
+      break;
+    }
+    if (a.startsWith('-') && a.length > 1) {
+      const eq = a.indexOf('=');
+      const name = (eq > 0 ? a.slice(0, eq) : a).replace(/^-+/, '');
+      let value = eq > 0 ? a.slice(eq + 1) : undefined;
+      if (VALUE_FLAGS.has(name)) {
+        if (value === undefined) {
+          value = argv[++i];
+          if (value === undefined) throw new UsageError(`option ${a} needs a value`);
+        }
+        if (MULTI_FLAGS.has(name)) (flags[name] = flags[name] || []).push(value);
+        else flags[name] = value;
+      } else {
+        flags[name] = value === undefined ? true : value;
+      }
+    } else {
+      pos.push(a);
+    }
+  }
+  return { pos, flags };
+}
+
+class UsageError extends Error {}
+
+function need(pos, n, usage) {
+  if (pos.length < n) throw new UsageError(`usage: vmapp ${usage}`);
+}
+
+function outPaths() {
+  const out = path.join(ROOT, 'out');
+  let initramfs = process.env.VMAPP_INITRAMFS;
+  if (!initramfs) {
+    initramfs = ['initramfs.cpio', 'initramfs.cpio.gz', 'initramfs'].map((n) => path.join(out, n)).find((p) => fs.existsSync(p)) || path.join(out, 'initramfs.cpio');
+  }
+  return {
+    vm: process.env.VMAPP_VM || path.join(out, 'vmapp-vm'),
+    kernel: process.env.VMAPP_KERNEL || path.join(out, 'Image'),
+    initramfs,
+    // the sandboxed GPU server and its profile (SPEC 8.6), built by gpu/build.sh
+    gpuServer: process.env.VMAPP_GPU_SERVER || path.join(out, 'gpu', 'rpc-server'),
+    gpuProfile: process.env.VMAPP_GPU_PROFILE || path.join(out, 'gpu', 'rpc-server.sb'),
+    // the EXPERIMENTAL Vulkan GPU backend (SPEC 8.7), built by gpu/krun/build.sh and kernel/build.sh --flavour gpu
+    krunVm: process.env.VMAPP_VM_KRUN || path.join(out, 'krun', 'bin', 'vmapp-vm-krun'),
+    krunKernel: process.env.VMAPP_KERNEL_GPU || path.join(out, 'Image-gpu'),
+  };
+}
+
+const kib = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MiB' : n >= 1024 ? (n / 1024).toFixed(1) + ' KiB' : n + ' B');
+
+// ------------------------------------------------------------------------------------------------ commands
+
+// `vmapp new`: copies templates/<template> and swaps the template's known placeholders for the new app's id and
+// name. Every placeholder must be found exactly once, so a template that drifts from this list fails loudly
+// instead of producing a half-renamed app. (TEMPLATE.md is not touched: it documents the template as shipped.)
+const APP_NAME_RE = /^[a-z][a-z0-9-]{1,40}$/;
+const APP_ID_RE = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
+const TEMPLATE_PLACEHOLDERS = {
+  starter: (id, title) => [
+    { file: 'vmapp.json', from: '"id": "com.example.starter"', to: `"id": "${id}"` },
+    { file: 'vmapp.json', from: '"name": "Starter"', to: `"name": "${title}"` },
+    { file: 'ui/index.html', from: '<title>Starter</title>', to: `<title>${title}</title>` },
+    { file: 'ui/index.html', from: '<h1>Starter</h1>', to: `<h1>${title}</h1>` },
+    { file: 'core/main.js', from: "const WINDOW_TITLE = 'Starter';", to: `const WINDOW_TITLE = '${title}';` },
+  ],
+};
+const COPY_SKIP = new Set(['.DS_Store', 'node_modules', '.out']);
+
+function copyTemplateDir(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    if (COPY_SKIP.has(e.name) || e.name.endsWith('.vmapp')) continue;
+    const s = path.join(src, e.name);
+    const d = path.join(dest, e.name);
+    if (e.isDirectory()) copyTemplateDir(s, d);
+    else if (e.isFile()) {
+      fs.copyFileSync(s, d);
+      fs.chmodSync(d, fs.statSync(s).mode & 0o777); // keeps the exec bit of scripts such as test/run.sh
+    }
+  }
+}
+
+function cmdNew({ pos, flags }) {
+  need(pos, 1, 'new <name> [--id com.example.x] [--template starter] [--dir PATH]');
+  const name = pos[0];
+  if (!APP_NAME_RE.test(name)) throw new Error(`invalid app name "${name}": use 2-41 characters, lowercase letters, digits and "-", starting with a letter`);
+  const id = flags.id || `com.example.${name}`;
+  if (typeof id !== 'string' || !APP_ID_RE.test(id) || id.length < 3 || id.length > 100) {
+    throw new Error(`invalid app id "${id}": reverse-DNS such as com.example.my-app (lowercase letters, digits, "-" and dots)`);
+  }
+  const templatesDir = path.join(ROOT, 'templates');
+  const tname = flags.template || 'starter';
+  const available = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).filter((n) => fs.existsSync(path.join(templatesDir, n, 'vmapp.json'))) : [];
+  if (typeof tname !== 'string' || !available.includes(tname)) throw new Error(`unknown template "${tname}" (available: ${available.join(', ') || 'none'})`);
+  const placeholders = TEMPLATE_PLACEHOLDERS[tname];
+  if (!placeholders) throw new Error(`template "${tname}" has no placeholder list in tools/vmapp`);
+  const dest = path.resolve(flags.dir === undefined ? name : String(flags.dir));
+  if (fs.existsSync(dest)) throw new Error(`${dest} already exists; refusing to overwrite it (pick another name or --dir)`);
+
+  const title = name.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  try {
+    copyTemplateDir(path.join(templatesDir, tname), dest);
+    for (const r of placeholders(id, title)) {
+      const file = path.join(dest, r.file);
+      const text = fs.readFileSync(file, 'utf8');
+      const parts = text.split(r.from);
+      if (parts.length !== 2) throw new Error(`template "${tname}" is out of date: expected exactly one ${JSON.stringify(r.from)} in ${r.file}, found ${parts.length - 1}`);
+      fs.writeFileSync(file, parts.join(r.to));
+    }
+  } catch (e) {
+    fs.rmSync(dest, { recursive: true, force: true }); // dest did not exist before this call
+    throw e;
+  }
+  const rel = path.relative(process.cwd(), dest) || '.';
+  console.log(`created ${dest}`);
+  console.log(`  id: ${id}   name: "${title}"   template: ${tname}`);
+  console.log('');
+  console.log('next steps:');
+  console.log(`  cd ${rel}`);
+  console.log('  read TEMPLATE.md      what each file is, and how an app starts, runs and quits');
+  console.log('  test/run.sh           pack, install, grant a folder and run the app in a real VM (headless)');
+  console.log(`  vmapp pack . -o ${name}.vmapp`);
+  console.log('                        build the package, then open it in the D9010 VmApp Launcher (Install from file…)');
+  console.log('edit vmapp.json (publisher, description, permissions), core/main.js and ui/ to make it yours.');
+}
+
+function cmdPack({ pos, flags }) {
+  need(pos, 1, 'pack <projectDir> [-o out.vmapp]');
+  const dir = path.resolve(pos[0]);
+  let out = flags.o || flags.output;
+  if (!out) {
+    const m = JSON.parse(fs.readFileSync(path.join(dir, 'vmapp.json'), 'utf8'));
+    out = `${m.id}-${m.version}.vmapp`;
+  }
+  const r = pkg.pack(dir, path.resolve(out));
+  console.log(`packed ${r.outFile} (${kib(r.size)})`);
+  console.log(`package id: ${r.packageId}`);
+}
+
+function cmdInspect({ pos, flags }) {
+  need(pos, 1, 'inspect <file> [--json]');
+  const p = pkg.read(path.resolve(pos[0]));
+  const files = p.entries.filter((e) => e.type === 'file').map((e) => ({ path: e.path, size: e.size }));
+  if (flags.json) {
+    console.log(JSON.stringify({ packageId: p.packageId, size: p.size, uiBytes: p.uiBytes, coreBytes: p.coreBytes, hasIcon: p.hasIcon, manifest: p.manifest, files }, null, 2));
+    return;
+  }
+  const m = p.manifest;
+  console.log(`${m.name} ${m.version}  (${m.id})`);
+  console.log(`package id : ${p.packageId}`);
+  console.log(`publisher  : ${m.publisher || '-'}`);
+  console.log(`runtime    : ${m.runtime}   command: ${JSON.stringify(m.core.command)}   recommends ${m.core.memoryMiB} MiB, ${m.core.cpus} cpu(s) (you choose; see \`vmapp resources\`)`);
+  console.log(`permissions: dialogs=${m.permissions.dialogs} external=${m.permissions.external}`);
+  if (m.ui.features) console.log(`window     : ${m.ui.features.join(', ')} (SPEC 7 window features: still no network, files or devices of its own)`);
+  for (const f of m.permissions.folders) console.log(`  folder ${f.name} (${f.access}): ${f.purpose}`);
+  for (const h of m.permissions.host || []) console.log(`  host ${h.cap}: ${h.purpose || '(no reason given)'}`);
+  if ((m.permissions.host || []).some((h) => h.cap === 'input' || h.cap.endsWith(':*'))) console.log('  ** requests control of your computer **');
+  if ((m.permissions.host || []).some((h) => h.cap === 'gpu')) console.log("  asks to run work on your Mac's GPU, through a sandboxed helper (off until you allow it)");
+  for (const n of m.permissions.network || []) {
+    const net = hostlib.network;
+    const marks = [n.host === '*' ? 'ANY server on the internet' : null, n.host.startsWith('*.') ? 'wildcard' : null, n.ports === '*' ? 'any port' : null, net.portsAllow(n.ports, 80) ? 'port 80: not encrypted' : null].filter(Boolean);
+    console.log(`  network ${n.host}:${net.portsArg(n.ports)}${marks.length ? ` [${marks.join('; ')}]` : ''}: ${n.purpose || '(no reason given)'}`);
+  }
+  const risk = hostlib.network.riskSummary(m);
+  if (risk.message) console.log(`  ** ${risk.message} **`);
+  for (const d of m.permissions.devices || []) console.log(`  device ${d.device}: ${d.purpose || '(no reason given)'}`);
+  console.log(`sizes      : package ${kib(p.size)}, ui ${kib(p.uiBytes)}, ${p.coreName} ${kib(p.coreBytes)}${p.coreName === 'core.erofs' ? ' (mounted read-only, not copied into memory)' : ''}${p.hasIcon ? ', icon.png' : ''}`);
+  console.log('files:');
+  for (const f of files) console.log(`  ${String(f.size).padStart(10)}  ${f.path}`);
+  console.log('manifest:');
+  console.log(JSON.stringify(m, null, 2));
+}
+
+function cmdVerify({ pos }) {
+  need(pos, 1, 'verify <file>');
+  const v = pkg.verify(path.resolve(pos[0]));
+  console.log(`OK ${v.manifest.id} ${v.manifest.version} ${v.packageId}`);
+}
+
+function cmdInstall({ pos, flags }, store) {
+  need(pos, 1, 'install <file> [--force]');
+  const r = store.install(path.resolve(pos[0]), { force: !!flags.force });
+  console.log(`installed ${r.id} ${r.version}${r.previous ? ` (was ${r.previous})` : ''}`);
+  console.log(`package id: ${r.packageId}`);
+}
+
+function cmdList({ flags }, store) {
+  const apps = store.list();
+  if (flags.json) {
+    console.log(JSON.stringify(apps.map((a) => (a.error ? a : { id: a.id, name: a.manifest.name, version: a.version, runtime: a.manifest.runtime, packageId: a.packageId, dir: a.dir })), null, 2));
+    return;
+  }
+  if (!apps.length) return console.log('(no apps installed)');
+  for (const a of apps) {
+    if (a.error) console.log(`${a.id}  ERROR ${a.error}`);
+    else console.log(`${a.id}  ${a.version}  ${a.manifest.name}  [${a.manifest.runtime}]  ${a.packageId.slice(0, 12)}`);
+  }
+}
+
+function cmdUninstall({ pos, flags }, store) {
+  need(pos, 1, 'uninstall <id> [--purge]');
+  store.uninstall(pos[0], { purge: !!flags.purge });
+  console.log(`uninstalled ${pos[0]}${flags.purge ? ' (data and grants removed)' : ' (data and grants kept)'}`);
+}
+
+function cmdGrant({ pos, flags }, store) {
+  need(pos, 2, 'grant <id> <folderName> <path> [--access read|readwrite|writeonly]');
+  const [id, name, p] = pos;
+  const app = store.get(id);
+  if (!app) throw new Error(`${id} is not installed`);
+  const req = app.manifest.permissions.folders.find((f) => f.name === name);
+  if (!req) throw new Error(`${id} does not request a folder named "${name}"`);
+  const grants = store.loadGrants(id);
+  if (flags.none) {
+    grants.folders[name] = null;
+  } else {
+    need(pos, 3, 'grant <id> <folderName> <path> [--access ...]');
+    const abs = path.resolve(p);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error(`${abs} is not a directory`);
+    const access = flags.access || req.access;
+    const allowed = { readwrite: ['readwrite', 'read', 'writeonly'], read: ['read'], writeonly: ['writeonly'] }[req.access];
+    if (!allowed.includes(access)) throw new Error(`access "${access}" is wider than the requested "${req.access}"`);
+    grants.folders[name] = { path: abs, access };
+  }
+  store.saveGrants(id, grants);
+  const g = grants.folders[name];
+  console.log(g ? `granted ${name} -> ${g.path} (${g.access})` : `declined ${name}`);
+}
+
+function cmdRuntimeInstall({ pos }, store) {
+  need(pos, 2, 'runtime-install <name> <image>');
+  const dest = store.installRuntime(pos[0], path.resolve(pos[1]));
+  console.log(`installed runtime ${pos[0]} -> ${dest}`);
+}
+
+// ------------------------------------------------------------------------------------------------ host capabilities
+// The catalog (capabilities/tools.json, mcp.json) and host grants are written only by these commands and the loader's
+// own UI (GOVERNANCE INV-H1). Nothing here is reachable from an app.
+
+const intFlag = (v, name) => {
+  const n = Number(v);
+  if (!Number.isInteger(n)) throw new UsageError(`--${name} needs an integer`);
+  return n;
+};
+
+function cmdTool({ pos, flags }, store) {
+  const sub = pos[0];
+  const catalog = new Catalog({ home: store.home });
+  if (sub === 'list') {
+    const tools = catalog.tools();
+    if (flags.json) return void console.log(JSON.stringify(tools, null, 2));
+    if (!tools.length) return void console.log('(no tools registered)');
+    for (const t of tools) console.log(`${t.id}  [${t.kind}]  ${t.name}  ${t.path}  (${t.args.length} arg spec(s)${t.variadic ? ', variadic' : ''})`);
+    return;
+  }
+  if (sub === 'remove') {
+    need(pos, 2, 'tool remove <id>');
+    catalog.removeTool(pos[1]);
+    return void console.log(`removed tool ${pos[1]} (grants that name it stop working; remove them with grant-host --revoke)`);
+  }
+  if (sub !== 'add') throw new UsageError('usage: vmapp tool add|list|remove ...');
+  need(pos, 2, 'tool add <id> --name N --path P --arg <pattern>... [--map-path-arg i] [--variadic] [--timeout ms] [--max-output bytes] [--kind tool|shell] [--cwd D]');
+  if (typeof flags.name !== 'string' || typeof flags.path !== 'string') throw new UsageError('tool add needs --name and --path');
+  const args = (flags.arg || []).map((pattern) => ({ pattern }));
+  const idx = (name) => (flags[name] || []).map((v) => {
+    const i = intFlag(v, name);
+    if (i < 0 || i >= args.length) throw new UsageError(`--${name} ${i}: there are ${args.length} --arg specs (indices start at 0)`);
+    return i;
+  });
+  for (const i of idx('optional-arg')) args[i].optional = true;
+  for (const i of idx('map-path-arg')) args[i].mapPath = true;
+  const def = { id: pos[1], name: flags.name, path: flags.path, args };
+  if (flags.variadic) def.variadic = true;
+  if (flags.timeout !== undefined) def.timeoutMs = intFlag(flags.timeout, 'timeout');
+  if (flags['max-output'] !== undefined) def.maxOutputBytes = intFlag(flags['max-output'], 'max-output');
+  if (flags.kind !== undefined) def.kind = flags.kind;
+  if (flags.cwd !== undefined) def.cwd = flags.cwd;
+  if (typeof flags.description === 'string') def.description = flags.description;
+  const t = catalog.addTool(def);
+  console.log(`registered tool ${t.id} -> ${t.path} [${t.kind}], ${t.args.length} arg spec(s)`);
+  if (t.kind === 'shell') console.log('WARNING: a shell tool runs whatever the app asks; it can never be granted "always", and the loader shows a badge while it runs.');
+}
+
+function cmdMcp({ pos, flags }, store) {
+  const sub = pos[0];
+  const catalog = new Catalog({ home: store.home });
+  if (sub === 'list') {
+    const list = catalog.mcpServers();
+    if (flags.json) return void console.log(JSON.stringify(list, null, 2));
+    if (!list.length) return void console.log('(no MCP servers registered)');
+    for (const s of list) console.log(`${s.id}  ${s.name}  ${JSON.stringify(s.command)}`);
+    return;
+  }
+  if (sub === 'remove') {
+    need(pos, 2, 'mcp remove <id>');
+    catalog.removeMcp(pos[1]);
+    return void console.log(`removed MCP server ${pos[1]}`);
+  }
+  if (sub !== 'add') throw new UsageError('usage: vmapp mcp add|list|remove ...');
+  need(pos, 3, 'mcp add <id> --name N [--env NAME=VALUE]... -- <command> [args...]');
+  if (typeof flags.name !== 'string') throw new UsageError('mcp add needs --name');
+  const env = {};
+  for (const kv of flags.env || []) {
+    const eq = kv.indexOf('=');
+    if (eq <= 0) throw new UsageError(`--env ${kv}: expected NAME=VALUE`);
+    env[kv.slice(0, eq)] = kv.slice(eq + 1);
+  }
+  const s = catalog.addMcp({ id: pos[1], name: flags.name, command: pos.slice(2), env });
+  console.log(`registered MCP server ${s.id} -> ${JSON.stringify(s.command)}`);
+}
+
+function cmdGrantHost({ pos, flags }, store) {
+  need(pos, 1, 'grant-host <appId> <cap> [--mode ask|session|always] [--tools a,b] [--servers x,y]');
+  const app = store.get(pos[0]);
+  if (!app) throw new Error(`${pos[0]} is not installed`);
+  const catalog = new Catalog({ home: store.home });
+  if (flags.list || pos.length === 1) {
+    const grants = store.loadHostGrants(app.id);
+    const sum = hostlib.capabilities.hostRequestSummary(app.manifest, catalog, grants);
+    if (flags.json) return void console.log(JSON.stringify(sum, null, 2));
+    if (!sum.length) return void console.log(`${app.id} requests no host capabilities`);
+    for (const r of sum) {
+      const g = r.grant ? `${r.grant.mode}${r.grant.tools ? ` tools=${r.grant.tools.join(',')}` : ''}${r.grant.servers ? ` servers=${r.grant.servers.join(',')}` : ''}` : 'not granted';
+      console.log(`${r.cap}${r.api ? ` (api ${r.api}, EXPERIMENTAL)` : ''}  [${r.risk}${r.control ? ', requests control of your computer' : ''}]  ${g}  ${r.purpose ? `- ${r.purpose}` : ''}`);
+    }
+    return;
+  }
+  const cap = pos[1];
+  if (flags.revoke) {
+    store.setHostGrant(app.id, cap, null);
+    return void console.log(`revoked ${cap} for ${app.id}`);
+  }
+  const spec = { mode: flags.mode === undefined ? (cap === 'gpu' ? 'session' : 'ask') : flags.mode };
+  if (flags.tools !== undefined) spec.tools = String(flags.tools).split(',').filter(Boolean);
+  if (flags.servers !== undefined) spec.servers = String(flags.servers).split(',').filter(Boolean);
+  const g = hostlib.capabilities.setHostGrant(store, catalog, app, cap, spec)[cap];
+  console.log(`granted ${cap} to ${app.id}: ${g.mode}${g.tools ? ` tools=${g.tools.join(',')}` : ''}${g.servers ? ` servers=${g.servers.join(',')}` : ''}`);
+  if (cap === 'gpu') console.log('(the GPU is allowed while the app runs, on every run, until you revoke it; a running app is switched off within a second of the revoke)');
+  else if (g.mode === 'session') console.log('(session grants are valid for the next run only; afterwards they go back to "ask")');
+}
+
+function cmdGrantDevice({ pos, flags }, store) {
+  need(pos, 1, 'grant-device <appId> microphone|clipboard|ports [--revoke] | grant-device <appId> --list');
+  const app = store.get(pos[0]);
+  if (!app) throw new Error(`${pos[0]} is not installed`);
+  const asked = app.manifest.permissions.devices || [];
+  if (flags.list || pos.length === 1) {
+    const grants = store.loadDeviceGrants(app.id);
+    const sum = asked.map((d) => ({ device: d.device, purpose: d.purpose, granted: !!grants[d.device] }));
+    if (flags.json) return void console.log(JSON.stringify(sum, null, 2));
+    if (!sum.length) return void console.log(`${app.id} requests no devices`);
+    for (const r of sum) console.log(`${r.device}  ${r.granted ? 'allowed while the app runs' : 'not allowed'}  ${r.purpose ? `- ${r.purpose}` : ''}`);
+    return;
+  }
+  const device = pos[1];
+  if (flags.revoke) {
+    store.setDeviceGrant(app.id, device, null);
+    return void console.log(`revoked ${device} for ${app.id}`);
+  }
+  if (!asked.some((d) => d.device === device)) throw new Error(`${app.id} does not ask for the device "${device}" in its manifest (the devices are microphone, clipboard and ports; the camera is reserved)`);
+  store.setDeviceGrant(app.id, device, { mode: 'allow' });
+  console.log(`allowed ${device} for ${app.id} while it runs`);
+}
+
+// ------------------------------------------------------------------------------------------------ VM size
+// The user's choice of vCPUs and memory (SPEC 2.2, 8): written only by this command and the loader's own UI (INV-D3).
+
+function cmdResources({ pos, flags }, store) {
+  need(pos, 1, 'resources <appId> [--cpus N] [--memory MiB] [--recommended] [--default]');
+  const app = store.get(pos[0]);
+  if (!app) throw new Error(`${pos[0]} is not installed`);
+  const res = hostlib.resources;
+  const limits = res.hostLimits();
+  const whole = (name, v) => {
+    if (!/^\d+$/.test(String(v))) throw new UsageError(`--${name} needs a whole number`);
+    return Number(v);
+  };
+  const editing = flags.recommended || flags.cpus !== undefined || flags.memory !== undefined;
+  if (flags.default && editing) throw new UsageError('--default cannot be combined with --cpus, --memory or --recommended');
+  if (flags.default) {
+    store.saveResources(app.id, null);
+  } else if (editing) {
+    const spec = flags.recommended ? res.recommendedChoice(app.manifest, limits) : {};
+    if (flags.cpus !== undefined) spec.cpus = whole('cpus', flags.cpus);
+    if (flags.memory !== undefined) spec.memoryMiB = whole('memory', flags.memory);
+    const checked = res.checkResources(spec, limits);
+    store.saveResources(app.id, Object.assign({}, store.loadResources(app.id) || {}, checked));
+  }
+  const grants = store.loadGrants(app.id);
+  const sum = res.resourceSummary(app.manifest, grants, limits);
+  if (flags.json) return void console.log(JSON.stringify(sum, null, 2));
+  const fmt = (s) => res.describeSize(s, 'MiB');
+  console.log(`${app.manifest.name} (${app.id})`);
+  console.log(`recommended : ${fmt(sum.recommended)}`);
+  console.log(`your choice : ${sum.custom ? fmt(sum.current) : `none (default: ${fmt(sum.current)})`}`);
+  console.log(`this Mac    : up to ${limits.cpus} vCPU${limits.cpus === 1 ? '' : 's'} and ${limits.memoryMiB} MiB (its logical cores, half of its memory)`);
+  if (sum.below.memoryMiB) console.log(`warning: ${sum.current.memoryMiB} MiB is less than the ${sum.recommended.memoryMiB} MiB the app recommends; it may run slowly or fail`);
+  if (sum.below.cpus) console.log(`note: ${sum.current.cpus} vCPU(s) is fewer than the ${sum.recommended.cpus} the app recommends; it may be slower`);
+  for (const n of sum.notes) console.log(`note: ${n}`);
+  if (editing || flags.default) console.log('applies at the next launch (a running app keeps the size it started with)');
+}
+
+// ------------------------------------------------------------------------------------------------ network
+// Network grants (SPEC 8.3) are written only by this command and the loader's own permission sheet (INV-N2, INV-D3).
+
+function cmdGrantNet({ pos, flags }, store) {
+  need(pos, 1, 'grant-net <appId> <host> [--ports 443,80] [--deny] [--revoke]   |   grant-net <appId> --list');
+  const app = store.get(pos[0]);
+  if (!app) throw new Error(`${pos[0]} is not installed`);
+  const net = hostlib.network;
+  const warnRisk = (grants) => {
+    const risk = net.riskSummary(app.manifest, grants);
+    if (risk.activeMessage) console.log(`** ${risk.activeMessage} **`);
+  };
+  if (flags.list || pos.length === 1) {
+    const grants = store.loadGrants(app.id);
+    const sum = net.netRequestSummary(app.manifest, grants);
+    if (flags.json) return void console.log(JSON.stringify(sum, null, 2));
+    if (!sum.length) return void console.log(`${app.id} requests no network access`);
+    for (const r of sum) {
+      const state = r.allowed ? `allowed on ${net.portsArg(r.allowedPorts)}` : r.grant && r.grant.allow === false ? 'declined' : 'not granted';
+      const marks = [r.any ? 'ANY server on the internet' : null, r.wildcard ? 'wildcard' : null, r.insecure ? 'port 80: not encrypted' : null].filter(Boolean);
+      console.log(`${r.host}  ports ${net.portsArg(r.ports)}${marks.length ? `  [${marks.join('; ')}]` : ''}  ${state}${r.purpose ? `  - ${r.purpose}` : ''}`);
+    }
+    return void warnRisk(grants);
+  }
+  const host = pos[1];
+  if (flags.revoke) {
+    if (!(app.manifest.permissions.network || []).some((e) => e.host === host) && !(host in store.loadNetGrants(app.id))) throw new Error(`${app.id} has no network entry or grant for "${host}"`);
+    store.setNetGrant(app.id, host, null);
+    return void console.log(`revoked ${host} for ${app.id} (a running app loses it at once only when the loader applies it; here it takes effect at the next run)`);
+  }
+  let ports;
+  if (flags.ports !== undefined && String(flags.ports) === '*') ports = '*';
+  else if (flags.ports !== undefined) {
+    ports = String(flags.ports).split(',').filter(Boolean).map((p) => (/^\d+$/.test(p) ? Number(p) : NaN));
+    if (!ports.length || ports.some((p) => !Number.isInteger(p))) throw new UsageError("--ports needs a comma separated list of port numbers, like 443,8443 (or '*' when the app asks for any port)");
+  }
+  const spec = net.checkNetGrant(app.manifest, host, { allow: !flags.deny, ports });
+  store.setNetGrant(app.id, host, spec);
+  const entry = app.manifest.permissions.network.find((e) => e.host === host);
+  console.log(spec.allow ? `allowed ${host === '*' ? '* (any server on the internet)' : host} for ${app.id} on ports ${net.portsArg(spec.ports || entry.ports)}` : `declined ${host} for ${app.id}`);
+  if (spec.allow) warnRisk(store.loadGrants(app.id));
+}
+
+function splitPaths(v) {
+  if (!v) return [];
+  if (v.trim().startsWith('[')) return JSON.parse(v);
+  return v.split(path.delimiter).filter(Boolean);
+}
+
+async function cmdRun({ pos, flags }, store) {
+  need(pos, 1, 'run <id> --headless [--script s.mjs]');
+  if (!flags.headless) throw new UsageError('only --headless is supported by this CLI (the GUI is the D9010 VmApp Launcher)');
+  const id = pos[0];
+  const p = outPaths();
+  const openAnswer = (flags.open || []).concat(splitPaths(process.env.VMAPP_HEADLESS_OPEN));
+  const save = flags.save || process.env.VMAPP_HEADLESS_SAVE || null;
+  const allowExternal = !!flags['allow-external'] || process.env.VMAPP_HEADLESS_EXTERNAL === '1';
+  const messageResponse = Number(flags['message-response'] !== undefined ? flags['message-response'] : process.env.VMAPP_HEADLESS_MESSAGE || 0);
+  const dialogs = new FakeDialogs({
+    open: openAnswer.length ? (prm) => (prm.multiple ? openAnswer.map((x) => path.resolve(x)) : [path.resolve(openAnswer[0])]) : null,
+    save: save ? () => path.resolve(save) : null,
+    message: messageResponse,
+    confirmExternal: allowExternal,
+  });
+  const clipboard = new FakeClipboard(process.env.VMAPP_HEADLESS_CLIPBOARD || '');
+  // Host capabilities: nothing is allowed unless a grant exists AND (for "ask") --allow-host answers yes.
+  const allowHost = !!flags['allow-host'] || process.env.VMAPP_HEADLESS_ALLOW_HOST === '1';
+  const capUi = new FakeCapabilitiesUi({ allow: allowHost });
+  capUi.events.on('confirm', (r, v) => console.log(`[host] ${r.app.name}: ${r.cap} ${r.op} ${r.detail} -> ${v ? 'allowed' : 'denied'}${allowHost ? '' : ' (no --allow-host)'}`));
+  capUi.events.on('badge', (b) => console.log(`[badge] ${b.badge} ${b.state}: ${b.app ? b.app.name : ''}${b.reason ? ` (${b.reason})` : ''}`));
+  const capabilities = new HostCapabilities({ store, ui: capUi });
+  capabilities.on('warning', (m) => console.log(`[host] warning: ${m}`));
+  capabilities.on('traffic', (e) => console.log(`[host] ${e.op} ${e.cap || ''} ${e.allowed ? 'allowed' : 'DENIED'} ${e.durationMs}ms ${e.detail || ''}`));
+  // The GPU (SPEC 8.6): only an app whose manifest asks for `gpu` AND that you allowed (grant-host <id> gpu --mode session) gets a server.
+  const gpu = new hostlib.GpuBroker({ binary: p.gpuServer, profile: p.gpuProfile, home: store.home });
+  await gpu.reapStale().catch(() => []);
+  const wm = new FakeWindowManager();
+  wm.events.on('window-created', (w) => console.log(`[window] ${w.id} created: ${w.params.entry} ${w.params.width}x${w.params.height} "${w.params.title || ''}"`));
+  wm.events.on('window-closed', (w) => console.log(`[window] ${w.id} closed`));
+  wm.events.on('emit', (win, channel, args) => console.log(`[emit] window ${win} ${channel} ${JSON.stringify(args).slice(0, 200)}`));
+  const session = new AppSession({
+    appId: id,
+    store,
+    vmappVmPath: p.vm,
+    kernel: p.kernel,
+    initramfs: p.initramfs,
+    windowManager: wm,
+    dialogs,
+    // a stand-in for the Mac's clipboard: VMAPP_HEADLESS_CLIPBOARD is its text (the app may read it if allowed the device "clipboard")
+    clipboard,
+    capabilities,
+    gpu,
+    // SPEC 8.7: the experimental Vulkan backend, for an app that asks for {cap:"gpu", api:"vulkan"} AND that you allowed
+    // (grant-host <id> gpu) - and only with --experimental-gpu (the CLI's form of the loader setting "Experimental GPU (Vulkan)")
+    krun: { path: p.krunVm, kernel: p.krunKernel, enabled: !!flags['experimental-gpu'] || process.env.VMAPP_EXPERIMENTAL_GPU === '1', gpuWindowMiB: flags['gpu-window'] ? Number(flags['gpu-window']) : undefined },
+    openExternal: (url) => console.log(`[external] would open ${url}`),
+    onLog: (e) => console.log(`[${e.level}] ${e.source}: ${e.message}`),
+  });
+  wm.attach(session);
+  session.on('exported', (e) => console.log(`[exported] ${JSON.stringify(e)}`));
+  session.on('traffic', (ev) => {
+    if (ev.kind === 'net') console.log(`[net] ${ev.allowed ? 'allowed' : 'DENIED '} ${ev.host}:${ev.port} up ${ev.bytesUp} down ${ev.bytesDown} ${ev.durationMs}ms${ev.reason ? ` (${ev.reason})` : ''}`);
+    else if (ev.kind === 'gpu' && ev.phase !== 'traffic') console.log(`[gpu] ${ev.preview}`);
+  });
+
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    await session.stop();
+  };
+  process.on('SIGINT', () => stop().then(() => process.exit(130)));
+  process.on('SIGTERM', () => stop().then(() => process.exit(143)));
+
+  let failure = null;
+  try {
+    await session.start();
+    console.log(`[run] ${id} is running`);
+    if (flags.script) {
+      const mod = await import(pathToFileURL(path.resolve(flags.script)).href);
+      const fn = typeof mod.default === 'function' ? mod.default : mod.run;
+      if (typeof fn !== 'function') throw new Error(`${flags.script} must export a default function (or run) taking {session, wm, dialogs, store}`);
+      await fn({ session, wm, dialogs, store, capabilities, capUi, clipboard });
+    } else {
+      const stopped = session.whenStopped();
+      await Promise.race([wm.waitForWindows(1, Number(flags.timeout || 10000)).catch(() => null), stopped]);
+      await Promise.race([new Promise((r) => setTimeout(r, Number(flags.duration || 500))), stopped]);
+    }
+  } catch (e) {
+    failure = e;
+    console.error(`[run] failed: ${e.message}`);
+  }
+  try {
+    await stop();
+  } catch (e) {
+    console.error(`[run] stop failed: ${e.message}`);
+  }
+  await capabilities.close().catch(() => {});
+  await gpu.stopAll('cli-exit').catch(() => {});
+  const info = session.stoppedInfo;
+  console.log(`[run] windows created: ${wm.windows.size}`);
+  if (info) console.log(`[run] stopped: ${JSON.stringify(info)}`);
+  return failure ? 1 : 0;
+}
+
+// ------------------------------------------------------------------------------------------------ registry
+// publish / search / get talk to a vmapp app registry (registry/server.js). Only these commands, and only when you
+// run them, make network requests (GOVERNANCE INV-G3); nothing here runs in the loader.
+
+const DEFAULT_REGISTRY = 'http://127.0.0.1:8790';
+
+function registryUrl(flags) {
+  const u = String(flags.registry || process.env.VMAPP_REGISTRY || DEFAULT_REGISTRY).replace(/\/+$/, '');
+  let parsed;
+  try {
+    parsed = new URL(u);
+  } catch {
+    throw new Error(`invalid registry URL "${u}" (expected http:// or https://)`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error(`invalid registry URL "${u}" (expected http:// or https://)`);
+  return u;
+}
+
+function isLoopbackUrl(u) {
+  const h = new URL(u).hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1';
+}
+
+async function registryFetch(url, init, timeoutMs) {
+  try {
+    return await fetch(url, Object.assign({ signal: AbortSignal.timeout(timeoutMs) }, init));
+  } catch (e) {
+    const why = (e.cause && (e.cause.code || e.cause.message)) || e.message;
+    throw new Error(`cannot reach the registry at ${new URL(url).origin}: ${why}`);
+  }
+}
+
+async function registryError(res) {
+  let text = '';
+  try {
+    text = await res.text();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const j = JSON.parse(text);
+    if (j && j.error && j.error.message) return `${j.error.message} (${j.error.code}, HTTP ${res.status})`;
+  } catch {
+    /* not JSON */
+  }
+  return `the registry answered HTTP ${res.status}${text ? `: ${text.slice(0, 200).replace(/\s+/g, ' ')}` : ''}`;
+}
+
+// Owner tokens: $VMAPP_HOME/publish-tokens.json = { "<registry url>": { "<app id>": "<token>" } }, mode 0600.
+function tokensFile(store) {
+  return path.join(store.home, 'publish-tokens.json');
+}
+
+function loadTokens(store) {
+  try {
+    const j = JSON.parse(fs.readFileSync(tokensFile(store), 'utf8'));
+    return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
+  } catch (e) {
+    if (e.code === 'ENOENT') return {};
+    throw new Error(`${tokensFile(store)} is unreadable (${e.message}); fix or remove it, or pass --token`);
+  }
+}
+
+function saveToken(store, registry, id, token) {
+  const all = loadTokens(store);
+  if (!all[registry] || typeof all[registry] !== 'object') all[registry] = {};
+  all[registry][id] = token;
+  const file = tokensFile(store);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + '\n', { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
+  return file;
+}
+
+async function cmdPublish({ pos, flags }, store) {
+  need(pos, 1, 'publish <file.vmapp> [--registry URL] [--token T]');
+  const file = path.resolve(pos[0]);
+  const p = pkg.read(file); // fails here, with a precise message, if the package is invalid
+  const { id, version } = p.manifest;
+  const registry = registryUrl(flags);
+  const saved = (loadTokens(store)[registry] || {})[id];
+  // --token shows up in `ps` and shell history; $VMAPP_PUBLISH_TOKEN and the saved file do not
+  const token = flags.token ? String(flags.token) : process.env.VMAPP_PUBLISH_TOKEN || saved || null;
+  if (token && registry.startsWith('http://') && !isLoopbackUrl(registry)) {
+    console.error(`warning: ${registry} is plain http, so the owner token travels unencrypted; use an https registry`);
+  }
+  const body = fs.readFileSync(file);
+  const headers = { 'Content-Type': 'application/octet-stream' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  // who you are (optional; only used when this publish creates a new publisher; shown to users only once verified)
+  const profile = {};
+  for (const k of ['name', 'company', 'email', 'url']) if (flags[k] !== undefined && flags[k] !== true) profile[k] = String(flags[k]);
+  const profileHeader = Object.keys(profile).length
+    ? JSON.stringify(profile).replace(/[\u007f-￿]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+    : null;
+  if (profileHeader) headers['X-Vmapp-Publisher'] = profileHeader;
+  const fail = async (res) => {
+    let msg = await registryError(res);
+    if (res.status === 401 && !token) msg += `\nThis id is already published. Pass --token <owner token>, or publish from the machine that first published it (it saved the token in ${tokensFile(store)}).`;
+    throw new Error(`publish failed: ${msg}`);
+  };
+  // A registry that keeps packages in object storage says so in /api/info: the package then goes straight to the storage
+  // (init -> PUT -> complete) instead of through the registry. Anything else, or an older registry, gets the direct upload.
+  let presigned = false;
+  if (!flags.direct) {
+    try {
+      const ir = await registryFetch(`${registry}/api/info`, { headers: { Accept: 'application/json' } }, 10000);
+      if (ir.ok) presigned = ((await ir.json()).publishModes || []).includes('presigned');
+    } catch {
+      /* no /api/info, or unreachable: the direct upload says which */
+    }
+  }
+  let res;
+  if (presigned) {
+    const sha = require('crypto').createHash('sha256').update(body).digest('hex');
+    const ih = { 'Content-Type': 'application/json' };
+    if (token) ih.Authorization = `Bearer ${token}`;
+    const init = await registryFetch(`${registry}/api/publish/init`, { method: 'POST', headers: ih, body: JSON.stringify({ size: body.length, sha256: sha }) }, 60000);
+    if (!init.ok) return fail(init);
+    const up = await init.json();
+    const target = hostlib.updates.storageTarget(registry, up.url);
+    const put = await registryFetch(target, { method: 'PUT', body, redirect: 'error' }, 30 * 60 * 1000);
+    if (!put.ok) throw new Error(`publish failed: the upload to the registry's storage at ${new URL(target).origin} answered HTTP ${put.status}`);
+    const ch = { 'Content-Type': 'application/json' };
+    if (token) ch.Authorization = `Bearer ${token}`;
+    else if (profileHeader) ch['X-Vmapp-Publisher'] = profileHeader;
+    res = await registryFetch(`${registry}/api/publish/complete`, { method: 'POST', headers: ch, body: JSON.stringify({ uploadId: up.uploadId }) }, 30 * 60 * 1000);
+  } else {
+    res = await registryFetch(`${registry}/api/publish`, { method: 'POST', headers, body }, 30 * 60 * 1000);
+  }
+  if (!res.ok) return fail(res);
+  const r = await res.json();
+  console.log(`published ${r.id} ${r.version} to ${registry}`);
+  console.log(`package id: ${r.packageId}`);
+  console.log(`page: ${registry}${r.url}`);
+  if (r.publisher) console.log(`shown to users as: ${r.publisher.label}${r.publisher.level === 'unverified' ? `  (verify your identity at ${registry}/publisher)` : ''}`);
+  if (r.ownerToken) {
+    const where = saveToken(store, registry, id, r.ownerToken);
+    console.log('');
+    console.log(`owner token: ${r.ownerToken}`);
+    console.log('SAVE IT NOW: the registry shows it once and keeps only a hash, so it cannot recover it.');
+    console.log(`It also lets you publish new versions of ${id}, so keep it private. Saved on this machine in ${where} (mode 0600).`);
+  } else if (flags.token && flags.token !== saved) {
+    saveToken(store, registry, id, String(flags.token));
+  }
+}
+
+async function cmdSearch({ pos, flags }) {
+  const registry = registryUrl(flags);
+  const qs = new URLSearchParams({ sort: String(flags.sort || 'popular'), limit: String(flags.limit || 20) });
+  if (pos.length) qs.set('q', pos.join(' '));
+  const res = await registryFetch(`${registry}/api/apps?${qs}`, { headers: { Accept: 'application/json' } }, 30000);
+  if (!res.ok) throw new Error(`search failed: ${await registryError(res)}`);
+  const r = await res.json();
+  if (flags.json) return void console.log(JSON.stringify(r, null, 2));
+  if (!r.items.length) return void console.log(pos.length ? `no apps match "${pos.join(' ')}"` : '(the registry has no apps yet)');
+  const w = Math.max(...r.items.map((a) => a.id.length));
+  for (const a of r.items) {
+    const desc = a.description ? ` - ${a.description.replace(/\s+/g, ' ').slice(0, 70)}` : '';
+    console.log(`${a.id.padEnd(w)}  ${a.latestVersion.padEnd(8)} ${String(a.downloads).padStart(6)} dl  ${a.name} [${a.publisher ? a.publisher.label : 'Unverified publisher'}]${desc}`);
+  }
+  if (r.total > r.items.length) console.log(`(${r.total - r.items.length} more: narrow the query or raise --limit)`);
+}
+
+async function cmdGet({ pos, flags }, store) {
+  need(pos, 1, 'get <id> [--version V | --choice compatible|latest [--from V]] [-o file] [--install] [--force] [--registry URL]');
+  const id = pos[0];
+  if (!APP_ID_RE.test(id) || id.length < 3 || id.length > 100) throw new Error(`invalid app id "${id}"`);
+  let wanted = String(flags.version || 'latest');
+  if (wanted !== 'latest' && !hostlib.manifest.SEMVER_RE.test(wanted)) throw new Error(`invalid version "${wanted}"`);
+  const registry = registryUrl(flags);
+  if (flags.choice !== undefined || flags.from !== undefined) {
+    // --choice asks the registry which version to take (SPEC 8.1); the download below is then by that exact version
+    if (flags.version) throw new UsageError('use either --version, or --choice with --from, not both');
+    const choice = String(flags.choice);
+    if (choice !== 'compatible' && choice !== 'latest') throw new UsageError('--choice must be compatible or latest (and --from needs --choice)');
+    const installed = store.get(id);
+    const from = flags.from !== undefined ? String(flags.from) : installed ? installed.version : null;
+    if (from !== null && !hostlib.manifest.SEMVER_RE.test(from)) throw new Error(`invalid --from version "${from}"`);
+    if (choice === 'compatible' && !from) throw new UsageError('--choice compatible needs --from <version> (or an installed copy of the app to start from)');
+    const qs = new URLSearchParams({ choice });
+    if (from) qs.set('from', from);
+    const rr = await registryFetch(`${registry}/api/apps/${id}/resolve?${qs}`, { headers: { Accept: 'application/json' } }, 30000);
+    if (!rr.ok) throw new Error(`could not resolve a version: ${await registryError(rr)}`);
+    const picked = (await rr.json()).version;
+    if (!picked) {
+      console.log(`no ${choice} version of ${id}${from ? ` for ${from}` : ''}: nothing newer or equal that is not withdrawn`);
+      return 1;
+    }
+    console.log(`${choice} version of ${id}${from ? ` from ${from}` : ''}: ${picked}`);
+    wanted = picked;
+  }
+  const install = !!flags.install;
+  const out = flags.o || flags.output ? path.resolve(String(flags.o || flags.output)) : null;
+  const destDir = out ? path.dirname(out) : install ? path.join(store.home, 'tmp') : process.cwd();
+  fs.mkdirSync(destDir, { recursive: true });
+  const part = path.join(destDir, `.vmapp-get-${process.pid}-${require('crypto').randomBytes(4).toString('hex')}.part`);
+  let final = null;
+  try {
+    // The registry answers with the package, or with a 302 to the package on its object storage. Either way the checksum
+    // and the package id come from the REGISTRY's response; the storage is never trusted (see the checks below).
+    const announced = await registryFetch(`${registry}/api/apps/${id}/${wanted}/download`, { redirect: 'manual' }, 30 * 60 * 1000);
+    let res = announced;
+    if ([301, 302, 303, 307, 308].includes(announced.status)) {
+      // no checksum from the registry, no download from the storage
+      if (!/^[0-9a-f]{64}$/i.test(announced.headers.get('x-vmapp-sha256') || '') || !/^[0-9a-f]{64}$/i.test(announced.headers.get('x-vmapp-package-id') || '')) {
+        throw new Error('refusing: the registry did not send X-Vmapp-Sha256 and X-Vmapp-Package-Id');
+      }
+      const target = hostlib.updates.storageTarget(registry, announced.headers.get('location'));
+      await announced.body?.cancel();
+      res = await registryFetch(target, { redirect: 'error' }, 30 * 60 * 1000); // one hop, no more
+      if (!res.ok) throw new Error(`download failed: the registry's package storage at ${new URL(target).origin} answered HTTP ${res.status}`);
+    } else if (!announced.ok) {
+      throw new Error(`download failed: ${await registryError(announced)}`);
+    }
+    const withdrawn = announced.headers.get('x-vmapp-withdrawn');
+    if (withdrawn !== null) {
+      let why = withdrawn;
+      try {
+        why = decodeURIComponent(withdrawn);
+      } catch {
+        /* show it as sent */
+      }
+      // eslint-disable-next-line no-control-regex
+      console.error(`warning: ${id} ${wanted} was withdrawn by its publisher: ${why.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 300)}`);
+    }
+    const claimedSha = (announced.headers.get('x-vmapp-sha256') || '').toLowerCase();
+    const claimedPkgId = (announced.headers.get('x-vmapp-package-id') || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(claimedSha) || !/^[0-9a-f]{64}$/.test(claimedPkgId)) {
+      throw new Error('refusing: the registry did not send X-Vmapp-Sha256 and X-Vmapp-Package-Id');
+    }
+    const hash = require('crypto').createHash('sha256');
+    let size = 0;
+    const { Transform } = require('stream');
+    const meter = new Transform({
+      transform(chunk, _e, cb) {
+        size += chunk.length;
+        if (size > pkg.MAX_PACKAGE) return cb(new Error(`refusing: the download is larger than the ${pkg.mib(pkg.MAX_PACKAGE)} package limit`));
+        hash.update(chunk);
+        cb(null, chunk);
+      },
+    });
+    await pipeline(Readable.fromWeb(res.body), meter, fs.createWriteStream(part, { mode: 0o600 }));
+    const actualSha = hash.digest('hex');
+    if (actualSha !== claimedSha) {
+      throw new Error(`refusing: the downloaded file's SHA-256 (${actualSha}) does not match what the registry announced (${claimedSha}); the file was damaged or changed`);
+    }
+    let p;
+    try {
+      p = pkg.read(part);
+    } catch (e) {
+      throw new Error(`refusing: the downloaded file is not a valid package: ${e.message}`);
+    }
+    if (p.packageId !== claimedPkgId) {
+      throw new Error(`refusing: the package id of the file (${p.packageId}) does not match X-Vmapp-Package-Id (${claimedPkgId})`);
+    }
+    if (p.manifest.id !== id) throw new Error(`refusing: asked for ${id} but the package is ${p.manifest.id}`);
+    if (wanted !== 'latest' && p.manifest.version !== wanted) throw new Error(`refusing: asked for version ${wanted} but the package is ${p.manifest.version}`);
+
+    final = out || path.join(destDir, `${id}-${p.manifest.version}.vmapp`);
+    if (!install || out) {
+      if (fs.existsSync(final) && !flags.force) throw new Error(`${final} already exists (use --force to replace it)`);
+    }
+    fs.renameSync(part, final);
+    console.log(`downloaded ${id} ${p.manifest.version} (${kib(size)})${install && !out ? '' : ` -> ${final}`}`);
+    console.log(`sha256 ${actualSha}`);
+    console.log(`package id ${p.packageId} (matches the file's manifest)`);
+    if (install) {
+      // record where it came from, so update choices (SPEC 8.1) can work for this app
+      const r = store.install(final, { force: !!flags.force, source: { registry } });
+      console.log(`installed ${r.id} ${r.version}${r.previous ? ` (was ${r.previous})` : ''}`);
+    }
+  } finally {
+    fs.rmSync(part, { force: true });
+    if (install && !out && final) fs.rmSync(final, { force: true }); // a temporary copy
+  }
+}
+
+// withdraw / restore: the publisher marks a version as withdrawn (never offered as an update; still downloadable by
+// its exact version) or undoes that. Uses the owner token saved by `publish`, $VMAPP_PUBLISH_TOKEN or --token.
+async function withdrawOrRestore({ pos, flags }, store, restore) {
+  const usage = restore ? 'restore <id> <version> [--registry URL] [--token T]' : 'withdraw <id> <version> --reason "why" [--registry URL] [--token T]';
+  need(pos, 2, usage);
+  const [id, version] = pos;
+  if (!APP_ID_RE.test(id) || id.length < 3 || id.length > 100) throw new Error(`invalid app id "${id}"`);
+  if (!hostlib.manifest.SEMVER_RE.test(version)) throw new Error(`invalid version "${version}"`);
+  let reason;
+  if (!restore) {
+    reason = typeof flags.reason === 'string' ? flags.reason.trim() : '';
+    if (!reason) throw new UsageError(`a reason is required: usage: vmapp ${usage}`);
+    if ([...reason].length > 200) throw new Error('the reason is too long (200 characters at most)');
+  }
+  const registry = registryUrl(flags);
+  const saved = (loadTokens(store)[registry] || {})[id];
+  const token = flags.token ? String(flags.token) : process.env.VMAPP_PUBLISH_TOKEN || saved || null;
+  if (!token) throw new Error(`no owner token for ${id} at ${registry}: pass --token, set $VMAPP_PUBLISH_TOKEN, or run this on the machine that published it`);
+  if (registry.startsWith('http://') && !isLoopbackUrl(registry)) {
+    console.error(`warning: ${registry} is plain http, so the owner token travels unencrypted; use an https registry`);
+  }
+  const res = await registryFetch(`${registry}/api/apps/${id}/${version}/${restore ? 'restore' : 'withdraw'}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(restore ? {} : { reason }),
+  }, 30000);
+  if (!res.ok) throw new Error(`${restore ? 'restore' : 'withdraw'} failed: ${await registryError(res)}`);
+  console.log(restore ? `restored ${id} ${version} (it can be picked as an update again)` : `withdrew ${id} ${version}: ${reason}`);
+  if (!restore) console.log('It is no longer offered by "latest compatible" or "always latest"; people can still download it by its exact version.');
+}
+
+const cmdWithdraw = (a, store) => withdrawOrRestore(a, store, false);
+const cmdRestore = (a, store) => withdrawOrRestore(a, store, true);
+
+// ------------------------------------------------------------------------------------------------ versions and updates
+// versions / use / policy / update (SPEC 8.1). `use` and `policy` touch only local files. `versions --remote` and
+// `update` contact the registry the app came from (apps/<id>/source.json), because you ran them (INV-G3).
+
+const POLICY_TEXT = { manual: 'Stay on this version', compatible: 'Latest compatible', latest: 'Always latest' };
+
+function needInstalled(store, id) {
+  if (!APP_ID_RE.test(id) || id.length < 3 || id.length > 100) throw new Error(`invalid app id "${id}"`);
+  const cur = store.currentVersion(id);
+  if (!cur) throw new Error(`${id} is not installed`);
+  return cur;
+}
+
+const OLDER_WARNING = 'Going back to an older version: app data is shared between versions, so the older version may not be able to read data written by a newer one.';
+
+async function cmdVersions({ pos, flags }, store) {
+  need(pos, 1, 'versions <id> [--remote] [--json]');
+  const id = pos[0];
+  const current = needInstalled(store, id);
+  const source = store.getSource(id);
+  const policy = store.getPolicy(id);
+  const installed = store.listVersions(id);
+  let remote = null;
+  if (flags.remote) {
+    if (!source) throw new Error(`${id} was installed from a file; there is no registry to ask`);
+    remote = await new hostlib.updates.Updates(store).listRegistryVersions(id);
+  }
+  if (flags.json) {
+    return void console.log(JSON.stringify({ id, current, policy, source, installed, registry: remote }, null, 2));
+  }
+  console.log(`${id}  current ${current}`);
+  console.log(`update choice: ${policy} (${POLICY_TEXT[policy]})`);
+  console.log(`source: ${source ? `${source.registry} (first installed as ${source.installedFrom || '?'})` : 'installed from a file'}`);
+  console.log('installed:');
+  for (const v of installed.slice().reverse()) console.log(`  ${v}${v === current ? '  (current)' : ''}`);
+  if (remote) {
+    console.log(`in the registry (${source.registry}):`);
+    for (const v of remote.slice().reverse()) {
+      const note = [store.listVersions(id).includes(v.version) ? 'installed' : null, v.withdrawn ? `WITHDRAWN: ${v.withdrawn.reason}` : null].filter(Boolean).join('; ');
+      console.log(`  ${v.version}${note ? `  ${note}` : ''}`);
+    }
+  } else if (source) {
+    console.log('(add --remote to list the versions in the registry)');
+  }
+}
+
+function cmdUse({ pos }, store) {
+  need(pos, 2, 'use <id> <version>');
+  const [id, version] = pos;
+  const was = needInstalled(store, id);
+  if (!store.listVersions(id).includes(version)) {
+    throw new Error(`${id} ${version} is not installed (installed: ${store.listVersions(id).join(', ')}). Use \`vmapp get ${id} --version ${version} --install\` to fetch it.`);
+  }
+  const older = hostlib.manifest.compareVersions(version, was) < 0;
+  store.useVersion(id, version);
+  console.log(`${id} now uses ${version}${was === version ? ' (already current)' : ` (was ${was})`}`);
+  if (older) {
+    console.log(OLDER_WARNING);
+    if (store.getSource(id) && store.getPolicy(id) !== 'manual') {
+      store.setPolicy(id, 'manual');
+      console.log('Update choice set to manual (Stay on this version), so it does not move forward again by itself.');
+    }
+  }
+}
+
+function cmdPolicy({ pos }, store) {
+  need(pos, 1, 'policy <id> [manual|compatible|latest]');
+  const [id, choice] = pos;
+  needInstalled(store, id);
+  if (choice === undefined) return void console.log(`${id}: ${store.getPolicy(id)} (${POLICY_TEXT[store.getPolicy(id)]})`);
+  if (!hostlib.store.UPDATE_CHOICES.includes(choice)) throw new UsageError(`usage: vmapp policy <id> manual|compatible|latest`);
+  if (choice !== 'manual' && !store.getSource(id)) throw new Error(`${id} was installed from a file, so there is no registry to ask for updates; only "manual" applies`);
+  store.setPolicy(id, choice);
+  console.log(`${id}: ${choice} (${POLICY_TEXT[choice]})`);
+}
+
+function describeDiff(d) {
+  const lines = [];
+  for (const f of d.added) lines.push(`  + new folder "${f.name}" (${f.access})${f.purpose ? `: ${f.purpose}` : ''}`);
+  for (const f of d.raised) lines.push(`  + more access to folder "${f.name}": ${f.from} -> ${f.to}`);
+  if (d.dialogs) lines.push('  + open/save dialogs');
+  if (d.external) lines.push('  + opening links in your browser');
+  // SPEC 8.1: a new host capability or device also always stops and asks; neither is granted by the update
+  for (const x of d.hostAdded || []) lines.push(`  + host capability ${x.cap}${x.control ? ' (requests control of your computer)' : ''}${x.purpose ? `: ${x.purpose}` : ''}`);
+  for (const x of d.devicesAdded || []) lines.push(`  + device ${x.device}${x.purpose ? `: ${x.purpose}` : ''}`);
+  // SPEC 8.3: more network reach (a new host, a wider wildcard, more ports) also always stops and asks
+  for (const x of d.netAdded || []) {
+    const pa = hostlib.network.portsArg;
+    const what = x.kind === 'ports' ? `more ports on ${x.host}: ${pa(x.newPorts)}` : `network access to ${x.host} (ports ${pa(x.ports)})`;
+    lines.push(`  + ${what}${x.any ? ' [ANY server on the internet]' : ''}${x.wildcard ? ' [wildcard]' : ''}${x.insecure ? ' [port 80: not encrypted]' : ''}${x.purpose ? `: ${x.purpose}` : ''}`);
+  }
+  return lines;
+}
+
+async function cmdUpdate({ pos, flags }, store) {
+  need(pos, 1, 'update <id> [--yes] [--choice compatible|latest]');
+  const id = pos[0];
+  const current = needInstalled(store, id);
+  const source = store.getSource(id);
+  if (!source) throw new Error(`${id} was installed from a file, so there is no registry to ask for updates`);
+  if (flags.choice !== undefined && !['compatible', 'latest'].includes(flags.choice)) throw new UsageError('--choice must be compatible or latest');
+  const up = new hostlib.updates.Updates(store);
+  const res = await up.check(id, { choice: flags.choice, download: true });
+  if (res.withdrawnCurrent) console.log(`warning: ${id} ${current} was withdrawn by its publisher: ${res.withdrawnCurrent.reason}`);
+  if (res.error && !res.candidate) throw new Error(`${res.offline ? 'cannot reach the registry' : 'update check failed'}: ${res.error}`);
+  if (!res.candidate) {
+    console.log(`${id} ${current} is up to date.`);
+    if (res.latest) console.log(`Version ${res.latest} exists but is a bigger change than that allows. Use \`vmapp update ${id} --choice latest\`.`);
+    return 0;
+  }
+  if (res.error || !res.prepared) throw new Error(`version ${res.candidate} is available but could not be fetched: ${res.error}`);
+  console.log(`${id}: ${current} -> ${res.candidate} from ${res.registry}`);
+  const lines = describeDiff(res.permissionDiff);
+  if (lines.length) {
+    console.log('This version asks for more than the one you have:');
+    for (const l of lines) console.log(l);
+  }
+  if (lines.length && !flags.yes) {
+    if (res.prepared.file) up.discard(res.prepared.file);
+    console.log(`Not applied. Review the above, then run \`vmapp update ${id} --yes\`.`);
+    return 3;
+  }
+  const r = await up.apply(id, res.candidate, { prepared: res.prepared });
+  console.log(`${r.installed ? 'installed' : 'switched to'} ${id} ${r.version} (was ${r.previous})`);
+  if (lines.length) console.log(`Review the folder grants with \`vmapp grant ${id} <folder> <path>\` before launching.`);
+  return 0;
+}
+
+// ------------------------------------------------------------------------------------------------ main
+
+async function main(argv) {
+  if (argv.length === 0 || argv[0] === '-h' || argv[0] === '--help' || argv[0] === 'help') {
+    process.stdout.write(USAGE);
+    return argv.length === 0 ? 2 : 0;
+  }
+  const cmd = argv[0];
+  const args = parseArgs(argv.slice(1));
+  const store = new Store({ home: args.flags.home || undefined });
+  const table = {
+    new: cmdNew,
+    pack: cmdPack,
+    inspect: cmdInspect,
+    verify: cmdVerify,
+    install: cmdInstall,
+    list: cmdList,
+    uninstall: cmdUninstall,
+    grant: cmdGrant,
+    'runtime-install': cmdRuntimeInstall,
+    tool: cmdTool,
+    mcp: cmdMcp,
+    'grant-host': cmdGrantHost,
+    'grant-net': cmdGrantNet,
+    'grant-device': cmdGrantDevice,
+    resources: cmdResources,
+    run: cmdRun,
+    publish: cmdPublish,
+    search: cmdSearch,
+    get: cmdGet,
+    withdraw: cmdWithdraw,
+    restore: cmdRestore,
+    versions: cmdVersions,
+    use: cmdUse,
+    policy: cmdPolicy,
+    update: cmdUpdate,
+  };
+  const fn = table[cmd];
+  if (!fn) throw new UsageError(`unknown command "${cmd}"\n\n${USAGE}`);
+  const r = await fn(args, store);
+  return typeof r === 'number' ? r : 0;
+}
+
+main(process.argv.slice(2)).then(
+  (code) => process.exit(code),
+  (e) => {
+    console.error(e instanceof UsageError ? e.message : `error: ${e.message}`);
+    process.exit(e instanceof UsageError ? 2 : 1);
+  },
+);

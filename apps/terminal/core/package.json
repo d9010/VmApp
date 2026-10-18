@@ -1,0 +1,10 @@
+{
+  "name": "vmapp-terminal-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Core of the D9010 VmApp Terminal app: a PTY bridge plus the bundled Gemini CLI. Built by ../build.sh.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@google/gemini-cli": "0.62.0"
+  }
+}

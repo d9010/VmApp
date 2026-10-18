@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "id": "com.example.basic",
+  "name": "Basic",
+  "version": "1.0.0",
+  "publisher": "Fixture Inc.",
+  "description": "A tiny fixture app for the registry tests.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 128,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "docs", "access": "read", "purpose": "The folder to show" }
+    ],
+    "dialogs": true,
+    "external": false
+  }
+}

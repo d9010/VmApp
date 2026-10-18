@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.particles",
+  "name": "Particles",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "A million-particle GPU showcase. The window draws with WebGPU at the Mac's full GPU speed; the scene (attractors, physics, presets) lives in the sandboxed VM and streams to the window.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "dialogs": false,
+    "external": false
+  }
+}

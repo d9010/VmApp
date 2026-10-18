@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; }
+body { max-width: 640px; margin: 24px auto; padding: 0 16px; font: 15px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+h1 { margin: 0 0 16px; }
+form { display: flex; gap: 8px; }
+form input { padding: 6px 8px; font: inherit; }
+#title { flex: 1; }
+#url { flex: 2; }
+button { padding: 6px 12px; font: inherit; cursor: pointer; }
+#error { color: #c0392b; }
+ul { list-style: none; margin: 16px 0 0; padding: 0; }
+li { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px solid #8884; }
+li .meta { flex: 1; min-width: 0; }
+li a { font-weight: 600; }
+li small { display: block; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+li button { border: 0; background: none; color: inherit; opacity: .6; }
+li button:hover { opacity: 1; }
+#empty { opacity: .6; }

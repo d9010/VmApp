@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Packs every sample app into ONE folder, ready to try in the VMApp Loader (Install from file…), plus a README.md that
+# says what each one shows, what to allow in its permission sheet, and where its source code is (here and upstream).
+#
+#   tools/pack-examples                 build what is missing, then pack everything into out/examples/
+#   tools/pack-examples --no-build      only pack apps whose build outputs already exist (skip the others)
+#   tools/pack-examples --out DIR       write the packages somewhere else
+#   tools/pack-examples --without NAME  leave out every example whose name contains NAME (repeatable)
+#
+# Builds that need Docker (todo, local-llm, ollama, ollama-desktop) run only when their outputs are missing.
+set -euo pipefail
+
+VMAPP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="$VMAPP/out/examples"
+BUILD=1
+WITHOUT=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-build) BUILD=0 ;;
+    --out) OUT="$2"; shift ;;
+    --without) WITHOUT+=("${2:?--without needs a name}"); shift ;;
+    *) echo "pack-examples: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+CLI="$VMAPP/tools/vmapp"
+mkdir -p "$OUT"
+
+# name | project dir | build output that must exist | build command (empty = none) | what it shows | what to allow
+APPS=(
+  "01-starter|templates/starter|||The starter template: every SDK feature once (files, dialogs, links, persistence)|documents folder (read), optional"
+  "02-notes|apps/notes|||Markdown notes; an Electron app ported by changing one require|notes folder (read & write); export folder (write-only)"
+  "03-hasher-rust|apps/hasher|core/hasher|apps/hasher/build.sh|A Rust core (static binary) that hashes a folder you pick|nothing up front; it asks for a folder in a dialog"
+  "04-todo-dotnet|apps/todo|core/Todo.dll|apps/todo/build.sh|A .NET 8 core; todos kept in the app's private data|nothing"
+  "05-particles-gpu|apps/gpu-demo|||1-2 million particles drawn with WebGPU on your Mac's GPU; physics in the VM|nothing"
+  "06-terminal-gemini|apps/terminal|core/bin/ptyd|apps/terminal/build.sh|A terminal window; the shell and Gemini CLI run in the VM on one folder|workspace folder (read & write); network generativelanguage.googleapis.com; paste your Gemini API key in its Settings"
+  "07-desk-helper|apps/computer-use|||Computer-use demo: screenshots, mouse and keyboard, host tools, MCP|screen / input / tools / MCP in the red section; register tools in Host Capabilities (⌘3)"
+  "08-local-llm|apps/local-llm|core/bin/llama-server|apps/local-llm/build.sh|llama.cpp in the VM with a chat UI; optional GPU over RPC|network huggingface.co + us.aws.cdn.hf.co; GPU (optional)"
+  "09-ollama|apps/ollama|core/bin/ollama|apps/ollama/build.sh|Ollama in the VM with a simple chat UI (CPU)|network registry.ollama.ai + its R2 storage host"
+  "10-ollama-gpu|apps/ollama-gpu|core/lib|apps/ollama/build.sh --with-vulkan|Ollama on your Mac's GPU through the experimental Vulkan backend|the two Ollama hosts; turn on Experimental GPU (Vulkan) in Host Capabilities (⌘3), then grant GPU"
+  "11-ollama-desktop|apps/ollama-desktop|ui/index.html|apps/ollama-desktop/build.sh|Ollama's own desktop app (its real UI and API) running on D9010 VmApp|the Ollama hosts (+ ollama.com for sign-in, optional); GPU optional as for 10"
+  "12-convert-mdviewer|examples/convert-electron/converted|||A classic Electron app converted; its renderer is byte-identical|nothing up front; file dialogs when you open a file"
+  "14-vscode|apps/vscode|ui/index.html|apps/vscode/build.sh|VS Code (Code - OSS): the full editor, terminal and extensions, in the VM|workspace folder (read & write); network to any host for git, npm and extensions (never your local network); clipboard and ports optional"
+)
+
+# Upstream projects an example is built on (bash 3.2 has no associative arrays, hence a function).
+upstream_for() {
+  case "$1" in
+    06-terminal-gemini) echo "[Gemini CLI](https://github.com/google-gemini/gemini-cli) 0.62.0 · [xterm.js](https://github.com/xtermjs/xterm.js)" ;;
+    08-local-llm) echo "[llama.cpp](https://github.com/ggml-org/llama.cpp) b11299" ;;
+    09-ollama|10-ollama-gpu) echo "[Ollama](https://github.com/ollama/ollama/tree/v0.35.0) v0.35.0" ;;
+    11-ollama-desktop) echo "[Ollama desktop app](https://github.com/ollama/ollama/tree/v0.35.0/app) v0.35.0 (UI: app/ui/app, backend: app/ui)" ;;
+    13-convert-bookmarks) echo "[Express](https://github.com/expressjs/express) 4.21.2" ;;
+    *) echo "" ;;
+  esac
+}
+# Where the example's own source lives in this repository, relative to the output folder when it is inside the repo.
+source_cell() {
+  local name="$1" dir="$2" up link
+  up="$(upstream_for "$name")"
+  case "$OUT" in
+    "$VMAPP"/*) link="[\`vmapp/$dir\`]($(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$VMAPP/$dir" "$OUT" 2>/dev/null || echo "$VMAPP/$dir"))" ;;
+    *) link="\`vmapp/$dir\`" ;;
+  esac
+  if [ -n "$up" ]; then echo "$link · upstream: $up"; else echo "$link"; fi
+}
+
+built=0; packed=0; skipped=()
+INDEX="$OUT/README.md"
+rm -f "$OUT/INDEX.md"   # the old name of this file
+{
+  echo "# D9010 VmApp examples"
+  echo
+  echo "Install any of these in the **D9010 VmApp Launcher** with **Load examples** (the empty library, or File → Load examples…; the loader"
+  echo "reads the **What to allow** column of this table) or one at a time with **Install from file…**. Each one runs in its own VM and"
+  echo "can reach only what you allow in its permission sheet. **Source** links to each example's code in this repository (and to"
+  echo "the upstream project, where an example is built on one), so you can read, change and rebuild it."
+  echo "Generated by \`tools/pack-examples\` on $(date '+%Y-%m-%d %H:%M')."
+  echo
+  echo "| File | What it shows | What to allow | Source |"
+  echo "|---|---|---|---|"
+} > "$INDEX"
+
+for entry in "${APPS[@]}"; do
+  IFS='|' read -r name dir marker build what allow <<< "$entry"
+  for w in ${WITHOUT[@]+"${WITHOUT[@]}"}; do
+    case "$name" in *"$w"*) skipped+=("$name (left out: --without $w)"); continue 2 ;; esac
+  done
+  if [ ! -d "$VMAPP/$dir" ]; then skipped+=("$name (not in this checkout)"); continue; fi # e.g. an app left out of a public export
+  if [ -n "$marker" ] && [ ! -e "$VMAPP/$dir/$marker" ]; then
+    if [ "$BUILD" = 1 ] && [ -n "$build" ]; then
+      echo "== building $name ($build)"
+      (cd "$VMAPP" && bash $build) || { echo "pack-examples: build of $name failed; skipping it" >&2; skipped+=("$name (build failed)"); continue; }
+      built=$((built + 1))
+    else
+      skipped+=("$name (not built: $build)"); continue
+    fi
+  fi
+  echo "== packing $name"
+  "$CLI" pack "$VMAPP/$dir" -o "$OUT/$name.vmapp" > /dev/null
+  "$CLI" verify "$OUT/$name.vmapp" > /dev/null
+  size=$(du -h "$OUT/$name.vmapp" | cut -f1 | tr -d ' ')
+  echo "| \`$name.vmapp\` ($size) | $what | $allow | $(source_cell "$name" "$dir") |" >> "$INDEX"
+  packed=$((packed + 1))
+done
+
+# the web-app conversion packs itself (it installs Express into its core first)
+echo "== packing 13-convert-bookmarks"
+if bash "$VMAPP/examples/convert-webapp/build.sh" "$OUT/13-convert-bookmarks.vmapp" > /dev/null 2>&1; then
+  size=$(du -h "$OUT/13-convert-bookmarks.vmapp" | cut -f1 | tr -d ' ')
+  echo "| \`13-convert-bookmarks.vmapp\` ($size) | A web app with an Express backend, converted; the server runs unchanged in the VM | nothing | $(source_cell 13-convert-bookmarks examples/convert-webapp) |" >> "$INDEX"
+  packed=$((packed + 1))
+else
+  skipped+=("13-convert-bookmarks (build failed)")
+fi
+
+{
+  echo
+  echo "Tips:"
+  echo "- Big downloads (models) go into the loader's data folder. To keep them off your main drive, start the loader with"
+  echo "  \`open --env VMAPP_HOME=/path/on/a/big/drive \"D9010VmAppLauncher.app\"\`."
+  echo "- The **Inspector** (an app's card → Inspect) shows every message, connection and permission use, live."
+  echo "- **Reset…** on a card forgets an app's data and choices; your own folders are never touched."
+} >> "$INDEX"
+
+echo
+echo "packed $packed app(s) into $OUT (built $built)"
+[ ${#skipped[@]} -eq 0 ] || printf 'skipped: %s\n' "${skipped[@]}"
+echo "see $INDEX"

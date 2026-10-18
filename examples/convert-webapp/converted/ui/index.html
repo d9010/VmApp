@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bookmarks</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Bookmarks</h1>
+  <form id="add" autocomplete="off">
+    <input id="title" placeholder="Title" required maxlength="200">
+    <input id="url" type="url" placeholder="https://example.com" required>
+    <button type="submit">Add</button>
+  </form>
+  <p id="error" role="alert" hidden></p>
+  <ul id="list"></ul>
+  <p id="empty" hidden>No bookmarks yet.</p>
+  <script src="bridge-fetch.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

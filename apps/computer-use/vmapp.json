@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.deskhelper",
+  "name": "Desk Helper",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "A computer-use demo: looks at your screen, clicks and types for you, runs host tools you registered and uses MCP servers. Every capability is off until you grant it.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "dialogs": false,
+    "external": false,
+    "host": [
+      { "cap": "screen", "purpose": "Takes a screenshot of what you choose to share, and lists your open windows, when you press 'Look at my screen'" },
+      { "cap": "input", "purpose": "Moves the pointer, clicks and types text only when you press the demo buttons" },
+      { "cap": "tool:*", "purpose": "Runs the host tools you registered (for example screencapture) when you pick one and press Run" },
+      { "cap": "mcp:*", "purpose": "Calls the tools of the MCP servers you registered when you pick one and press Call" }
+    ]
+  }
+}

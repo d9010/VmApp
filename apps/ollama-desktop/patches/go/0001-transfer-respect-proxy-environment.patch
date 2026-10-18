@@ -1,0 +1,113 @@
+From: vmapp <vmapp@example.invalid>
+Subject: [PATCH 1/2] transfer: respect the proxy environment for blob downloads
+
+Model blobs are downloaded in two steps: the registry answers a blob request with a redirect to a storage host, and the client then
+(1) checks the redirect target (`transfer.ValidateRedirectTarget`: a local DNS lookup, refusing non-public addresses) and (2) downloads
+from it with `transfer.NewRedirectClient`, whose transport has a custom DialContext (`checkedDialer`: resolve, refuse non-public
+addresses, dial a pinned IP) and no Proxy setting. Every other Go client of Ollama's (manifests, tokens) honours HTTPS_PROXY through
+http.DefaultTransport; the blob download is the one that does not. On a machine whose only way out is a proxy and which has no DNS
+(a corporate network, a sandbox, a VM), a pull therefore fails after the manifest with
+`redirect target not allowed: resolving <host>: lookup <host>: ...`, and could not work even without that check: the dial goes straight
+to the host.
+
+This makes the blob download respect http.ProxyFromEnvironment, like any other Go client:
+
+* ValidateRedirectTarget keeps its scheme check and its check of IP literals, and skips the DNS lookup when the target is reached through
+  a proxy: this process does not resolve or dial it then, the proxy does, so the address policy is the proxy's. (A lookup here could
+  only fail where the proxy is the one way out, and would protect nothing.)
+* checkedClient's transport gets `Proxy: ProxyFromEnvironment`. Its DialContext dials the address of a proxy that the environment named
+  as it is (that address is the operator's choice, not a registry's), and still dials every other address through checkedDialer. The
+  transport records the proxy addresses it was given by ProxyFromEnvironment, so a registry-supplied host is never exempt.
+
+Without a proxy in the environment nothing changes: ProxyFromEnvironment returns nil, no address is recorded, and the lookup and the
+dialer behave exactly as before.
+
+---
+ transfer/redirect.go | 48 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 48 insertions(+)
+
+diff --git a/transfer/redirect.go b/transfer/redirect.go
+--- a/transfer/redirect.go
++++ b/transfer/redirect.go
+@@ -8,6 +8,7 @@ import (
+ 	"net/http"
+ 	"net/url"
+ 	"strings"
++	"sync"
+ 	"time"
+ )
+
+@@ -88,6 +89,12 @@ func ValidateRedirectTarget(ctx context.Context, loc *url.URL, baseURL string, a
+ 		}
+ 		return nil
+ 	}
++	// Behind a proxy this process neither resolves nor dials the target, the
++	// proxy does, so the address policy is the proxy's. A lookup here would
++	// only fail where the proxy is the one way out and there is no DNS.
++	if viaProxy(loc) {
++		return nil
++	}
+
+ 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+ 	if err != nil {
+@@ -167,8 +174,10 @@ func checkedClient(baseURL string, allowPrivate bool) *http.Client {
+ 	if b, err := url.Parse(baseURL); err == nil {
+ 		baseHostname = b.Hostname()
+ 	}
++	var proxies proxyAddrs
+ 	return &http.Client{
+ 		Transport: &http.Transport{
++			Proxy:               proxies.proxyFromEnvironment,
+ 			MaxIdleConns:        100,
+ 			MaxIdleConnsPerHost: 100,
+ 			IdleConnTimeout:     90 * time.Second,
+@@ -180,6 +189,12 @@ func checkedClient(baseURL string, allowPrivate bool) *http.Client {
+ 				if err == nil && baseHostname != "" && strings.EqualFold(host, baseHostname) {
+ 					return new(net.Dialer).DialContext(ctx, network, addr)
+ 				}
++				// The address of a proxy named by the environment is the
++				// operator's choice, not a registry's: dial it as is. The
++				// target is then resolved, and checked, by the proxy.
++				if proxies.has(addr) {
++					return new(net.Dialer).DialContext(ctx, network, addr)
++				}
+ 				return checkedDialer(&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 3 * time.Minute}, allowPrivate)(ctx, network, addr)
+ 			},
+ 		},
+@@ -188,3 +203,36 @@ func checkedClient(baseURL string, allowPrivate bool) *http.Client {
+ 		},
+ 	}
+ }
++
++// viaProxy reports whether requests to u go through a proxy named by the
++// environment (HTTPS_PROXY, HTTP_PROXY, NO_PROXY), as for any other Go client.
++func viaProxy(u *url.URL) bool {
++	p, err := http.ProxyFromEnvironment(&http.Request{URL: u})
++	return err == nil && p != nil
++}
++
++// proxyAddrs remembers the host:port of every proxy that
++// http.ProxyFromEnvironment returned, so that the dialer can tell the dial to
++// a proxy (which the Transport makes with the same DialContext) from a dial to
++// a registry-supplied target.
++type proxyAddrs struct{ m sync.Map }
++
++func (p *proxyAddrs) proxyFromEnvironment(req *http.Request) (*url.URL, error) {
++	u, err := http.ProxyFromEnvironment(req)
++	if u != nil {
++		port := u.Port()
++		if port == "" {
++			port = map[string]string{"https": "443", "socks5": "1080", "socks5h": "1080"}[u.Scheme]
++			if port == "" {
++				port = "80"
++			}
++		}
++		p.m.Store(net.JoinHostPort(u.Hostname(), port), struct{}{})
++	}
++	return u, err
++}
++
++func (p *proxyAddrs) has(addr string) bool {
++	_, ok := p.m.Load(addr)
++	return ok
++}

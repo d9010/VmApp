@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "com.vmapp.loadertest",
+  "name": "Loader Test",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A tiny app used by the loader's CDP test: one window, an invoke handler, an emit, folder and dialog use.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [
+      { "name": "work", "access": "readwrite", "purpose": "Where the test app lists and writes its files" },
+      { "name": "extra", "access": "read" }
+    ],
+    "dialogs": true,
+    "external": true
+  }
+}

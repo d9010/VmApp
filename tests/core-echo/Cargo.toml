@@ -1,0 +1,24 @@
+[package]
+name = "core-echo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Test core for the vmapp e2e tests: a line protocol on $VMAPP_SOCKET that probes the guest sandbox."
+
+[[bin]]
+name = "core-echo"
+path = "src/main.rs"
+
+# Standalone package: not part of any parent workspace.
+[workspace]
+
+[dependencies]
+# Same pinned version the guest uses (the PTY probe calls posix_openpt and friends).
+libc = "=0.2.190"
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true

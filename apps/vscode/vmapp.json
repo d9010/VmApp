@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.vscode",
+  "name": "Code - OSS",
+  "version": "1.142.0",
+  "publisher": "D9010 VmApp samples",
+  "description": "VS Code 1.142.0 built from its MIT source (Code - OSS), with its server, extensions, terminal and git inside a VM: it sees only the folders you share with it, and reaches the internet only if you allow it. Two vCPUs make it noticeably faster.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 3072,
+    "cpus": 2,
+    "image": "erofs"
+  },
+  "ui": { "root": "ui", "features": ["workers", "wasm", "self-fetch", "frames", "network"] },
+  "permissions": {
+    "folders": [
+      { "name": "workspace", "access": "readwrite", "purpose": "The folder you work on: VS Code opens it at start and can read, change, create and delete files in it, as can the programs you run in its terminal." }
+    ],
+    "dialogs": true,
+    "external": true,
+    "devices": [
+      { "device": "clipboard", "purpose": "The Paste and Copy menu items, and pasting into the terminal (keyboard copy and paste in the editor work without it)." },
+      { "device": "ports", "purpose": "The Ports view: a server you start in the terminal (npm run dev, a preview) opens in your browser at localhost." }
+    ],
+    "network": [
+      { "host": "*", "ports": "*", "purpose": "Git remotes, npm and pip, extensions and their icons, APIs you test: for the editor, its terminal and its window. Never your local network or this Mac." }
+    ]
+  }
+}

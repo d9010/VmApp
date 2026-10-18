@@ -1,0 +1,36 @@
+web: let a page that hosts the server's workbench add non-JSON construction options
+
+The server renders workbench.html with the workbench's options as JSON in a <meta> element, and workbench.ts passes them to create().
+Options that are functions or providers (IWorkbenchConstructionOptions.webSocketFactory, resourceUriProvider, commands, ...) cannot be
+written as JSON, so a page that serves the same workbench bundle itself (an embedder with its own transport to the server, here a vmapp
+window whose only channel to the server is an IPC bridge) has no way to supply them without rebuilding the entry point.
+
+This adds one optional global, read once at startup: globalThis.vscodeWebEmbedderOptions, a Partial<IWorkbenchConstructionOptions> that
+the embedding page defines before the workbench module runs. Its options are applied last. Nothing changes when it is not defined, which
+is always the case for the page the server renders.
+
+--- a/src/vs/code/browser/workbench/workbench.ts
++++ b/src/vs/code/browser/workbench/workbench.ts
+@@ -618,16 +618,22 @@
+ 	const secretStorageKeyPath = readCookie('vscode-secret-key-path');
+ 	const secretStorageCrypto = secretStorageKeyPath && ServerKeyedAESCrypto.supported()
+ 		? new ServerKeyedAESCrypto(secretStorageKeyPath) : new TransparentCrypto();
+
++	// A page that serves this workbench itself, instead of the server, can add the options that cannot be written as JSON in the
++	// configuration element (functions and providers: `webSocketFactory`, `resourceUriProvider`, `commands`, ...). It defines them on
++	// `globalThis.vscodeWebEmbedderOptions` before this module runs; they are applied last.
++	const embedderOptions = (globalThis as { vscodeWebEmbedderOptions?: Partial<IWorkbenchConstructionOptions> }).vscodeWebEmbedderOptions;
++
+ 	// Create workbench
+ 	create(mainWindow.document.body, {
+ 		...config,
+ 		windowIndicator: config.windowIndicator ?? { label: '$(remote)', tooltip: `${product.nameShort} Web` },
+ 		settingsSyncOptions: config.settingsSyncOptions ? { enabled: config.settingsSyncOptions.enabled, } : undefined,
+ 		workspaceProvider: WorkspaceProvider.create(config),
+ 		urlCallbackProvider: new LocalStorageURLCallbackProvider(config.callbackRoute),
+ 		secretStorageProvider: config.remoteAuthority && !secretStorageKeyPath
+ 			? undefined /* with a remote without embedder-preferred storage, store on the remote */
+ 			: new LocalStorageSecretStorageProvider(secretStorageCrypto),
++		...embedderOptions,
+ 	});
+ })();

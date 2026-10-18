@@ -1,0 +1,207 @@
+# Forbidden kernel options for the vmapp guest (Linux 6.18.y, arm64).
+#
+# Adapted from d9010-native/guest/distro/kernel/kconfig-forbidden.txt (extended: no namespaces, cgroups, eBPF,
+# ext4, overlay, loop or ACPI/EFI, because the vmapp guest uses none of them).
+#
+# Checked by kernel/check-kconfig.sh against the FINAL .config (after `make olddefconfig`). The kernel build fails
+# if any option matching a pattern below is enabled (=y, =m or any value other than n). Format:
+#   PATTERN     shell-style pattern matched against the option name without the CONFIG_ prefix; '*' matches any
+#               run of [A-Z0-9_]
+#   !NAME       exemption: this exact symbol is allowed although a pattern matches it (use sparingly, always with
+#               a reason)
+# '#' starts a comment. Every non-glob entry must be a real Kconfig symbol of the pinned kernel and every glob must
+# match at least one (verified when the kernel source tree is available), so a typo or an upstream rename cannot
+# make this list inert.
+#
+# Network access for apps (a later milestone, SPEC) will need NETDEVICES and a virtual NIC. That change must edit
+# this file on purpose, in the same pull request as the spec change.
+
+# --- Loadable modules: everything needed is built in ----------------------------
+MODULES
+
+# --- Host-guest isolation (SPEC section 4, GOVERNANCE) -------------------------------
+# Guest processes must not reach guest-local vsock listeners (the control port of vmapp-init).
+VSOCKETS_LOOPBACK
+VHOST_MENU
+VHOST
+VHOST_*
+
+# --- No container machinery, no eBPF: the core runs as uid 1000 in a chroot ------------------
+NAMESPACES
+UTS_NS
+IPC_NS
+USER_NS
+PID_NS
+NET_NS
+TIME_NS
+CGROUPS
+CGROUP_*
+BPF_SYSCALL
+POSIX_MQUEUE
+BINFMT_MISC
+
+# --- No USB / sound / graphics / wireless / Bluetooth / input -----------------------------
+USB_SUPPORT
+USB
+USB_*
+USB4
+USB4_*
+# Stray def_bool in drivers/usb/host/Kconfig outside `if USB`; no driver code behind it.
+!USB_OHCI_LITTLE_ENDIAN
+SOUND
+SND
+SND_*
+DRM
+DRM_*
+FB
+FB_*
+FRAMEBUFFER_CONSOLE
+FRAMEBUFFER_CONSOLE_*
+VGA_CONSOLE
+VT
+VT_*
+LOGO
+LOGO_*
+WIRELESS
+CFG80211
+CFG80211_*
+MAC80211
+MAC80211_*
+WLAN
+WLAN_*
+RFKILL
+RFKILL_*
+BT
+BT_*
+NFC
+NFC_*
+CAN
+CAN_*
+MEDIA_SUPPORT
+MEDIA_SUPPORT_*
+HID_SUPPORT
+HID
+HID_*
+INPUT
+INPUT_*
+
+# --- No NIC, no packet-filtering stack (the VM has loopback only) ---------------------------
+NETDEVICES
+ETHERNET
+NET_VENDOR_*
+VIRTIO_NET
+VETH
+TUN
+MACVLAN
+NETFILTER
+NETFILTER_*
+NF_*
+IP_NF_*
+IP6_NF_*
+NET_SCHED
+NET_SCH_*
+NET_CLS
+NET_CLS_*
+NET_ACT_*
+BRIDGE
+BRIDGE_*
+VLAN_8021Q
+VLAN_8021Q_*
+PACKET
+PACKET_*
+NET_9P
+NET_9P_*
+9P_FS
+9P_FS_*
+IPV6_SIT
+QRTR
+QRTR_*
+BLK_DEV_NBD
+
+# --- Filesystems that are not used ---------------------------------------------------------------
+NETWORK_FILESYSTEMS
+NFS_FS
+NFSD
+CIFS
+BTRFS_FS
+SQUASHFS
+FAT_FS
+VFAT_FS
+MSDOS_FS
+EXFAT_FS
+UBIFS_FS
+AUTOFS_FS
+EFIVAR_FS
+DEBUG_FS
+EXT4_FS
+EXT2_FS
+OVERLAY_FS
+BLK_DEV_LOOP
+CUSE
+FUSE_DAX
+HUGETLBFS
+CONFIGFS_FS
+
+# --- Hosting / platform / storage that this guest never has -------------------------------
+VIRTUALIZATION
+KVM
+KVM_*
+XEN
+XEN_*
+SCSI
+ATA
+NVME_CORE
+BLK_DEV_NVME
+MMC
+MTD
+MD
+BLK_DEV_DM
+CRYPTO_HW
+IOMMU_SUPPORT
+WATCHDOG
+PERF_EVENTS
+CORESIGHT
+PCI_ENDPOINT
+GPIOLIB
+ACPI
+ACPI_*
+EFI
+EFI_STUB
+ARCH_APPLE
+ARCH_QCOM
+ARCH_TEGRA
+ARCH_ROCKCHIP
+ARCH_EXYNOS
+ARCH_MEDIATEK
+ARCH_RENESAS
+ARCH_SUNXI
+ARCH_BCM
+ARCH_NXP
+ARCH_HISI
+ARCH_THUNDER
+ARCH_XGENE
+ARCH_VEXPRESS
+ARCH_ZYNQMP
+
+# --- Privileged / legacy kernel interfaces -------------------------------------------------
+COMPAT
+COMPAT_32BIT_TIME
+COMPAT_BRK
+KEXEC
+KEXEC_*
+CRASH_DUMP
+HIBERNATION
+DEVMEM
+PROC_KCORE
+LEGACY_TIOCSTI
+IO_URING
+KSM
+SWAP
+CMA
+AUDIT
+ELF_CORE
+PROC_MEM_ALWAYS_FORCE
+PROC_MEM_NO_FORCE
+CRYPTO_USER
+CRYPTO_USER_API
+CRYPTO_USER_API_*

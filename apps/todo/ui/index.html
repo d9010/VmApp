@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="card">
+    <header>
+      <h1>Todo</h1>
+      <span id="summary" class="summary"></span>
+    </header>
+
+    <form id="form" class="add" autocomplete="off">
+      <input id="input" type="text" placeholder="What needs doing?" maxlength="500" aria-label="New task">
+      <button type="submit" class="primary">Add</button>
+    </form>
+
+    <ul id="list" class="list"></ul>
+    <p id="empty" class="empty" hidden>Nothing to do. Enjoy it.</p>
+
+    <footer>
+      <span id="status" class="status" role="status"></span>
+      <button id="btn-clear" disabled>Clear completed</button>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

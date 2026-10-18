@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.convert.mdviewer",
+  "name": "Markdown Viewer",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp examples",
+  "description": "A tiny Markdown viewer, converted from a classic Electron app. See examples/convert-electron/CONVERSION.md.",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": true,
+    "external": false
+  }
+}

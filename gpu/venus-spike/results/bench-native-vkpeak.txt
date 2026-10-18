@@ -1,0 +1,26 @@
+device       = Apple M4 Max
+driver       = MoltenVK / 1.4.2
+
+fp32-scalar  = 15787.12 GFLOPS
+fp32-vec4    = 15189.14 GFLOPS
+fp16-scalar  = 15743.64 GFLOPS
+fp16-vec4    = 16023.02 GFLOPS
+fp16-matrix  = 0.00 GFLOPS
+fp64-scalar  = 0.00 GFLOPS
+fp64-vec4    = 0.00 GFLOPS
+int32-scalar = 4037.10 GIOPS
+int32-vec4   = 4036.71 GIOPS
+int16-scalar = 4037.36 GIOPS
+int16-vec4   = 4037.28 GIOPS
+int64-scalar = 1343.99 GIOPS
+int64-vec4   = 1028.35 GIOPS
+int8-dotprod = 57267.04 GIOPS
+int8-matrix  = 0.00 GIOPS
+bf16-dotprod = 0.00 GFLOPS
+bf16-matrix  = 0.00 GFLOPS
+fp8-matrix   = 0.00 GFLOPS
+bf8-matrix   = 0.00 GFLOPS
+copy-h2h     = 70.94 GBPS
+copy-h2d     = 71.43 GBPS
+copy-d2h     = 70.75 GBPS
+copy-d2d     = 198.55 GBPS

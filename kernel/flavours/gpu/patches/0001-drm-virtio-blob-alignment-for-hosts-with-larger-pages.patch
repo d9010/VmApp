@@ -1,0 +1,119 @@
+drm/virtio: add the blob_alignment parameter (hosts with larger pages)
+
+Problem. libkrun on Apple silicon maps host-visible blob resources into the
+guest's "host window" with Hypervisor.framework, whose mapping granule is the
+host page size (16 KiB). A guest with 4 KiB pages must therefore create
+host3d blobs whose size is a multiple of 16 KiB, and place them at 16 KiB
+aligned offsets of the window. Otherwise the host cannot map them (hv_vm_map
+fails and the blob map command returns an error) and Vulkan instance creation
+fails in the guest.
+
+Userspace (Mesa Venus, 26.2.4 and later) already queries
+VIRTGPU_PARAM_BLOB_ALIGNMENT (9) and pads its blob sizes to the value it
+gets. Mainline kernels do not implement the parameter.
+
+What this patch does:
+
+ - adds the module parameter virtio_gpu.blob_alignment: unsigned int, a power
+   of two, default 0 meaning "no constraint", read-only after boot (mode
+   0400). The VMM or launcher sets it on the kernel command line, for libkrun
+   on Apple silicon: virtio_gpu.blob_alignment=16384. The driver is built in,
+   so the command-line prefix is the driver name, virtio_gpu.
+ - DRM_IOCTL_VIRTGPU_GETPARAM(VIRTGPU_PARAM_BLOB_ALIGNMENT) returns it (new
+   uapi define, value 9).
+ - RESOURCE_CREATE_BLOB for host3d blobs (blobs without guest memory) whose
+   size is not a multiple of the alignment is rejected with EINVAL. A value
+   that is not a power of two rejects all such blobs.
+ - the placement of host-visible blobs in the host window honours the
+   alignment (drm_mm_insert_node_generic() with that alignment).
+
+With the parameter at its default of 0 the behaviour is exactly that of
+mainline.
+
+Written against linux-6.18.56, the kernel pinned by vmapp (kernel/pins.env).
+It is applied by kernel/build.sh --flavour gpu to the verified source tree
+with patch -p1 --fuzz=0, and only in that flavour. The default vmapp kernel
+has no DRM at all and does not contain it.
+
+Licence: the patch is under the licence of the file each hunk modifies. In
+Linux 6.18.56 that is MIT for drivers/gpu/drm/virtio/virtgpu_drv.h,
+drivers/gpu/drm/virtio/virtgpu_ioctl.c and include/uapi/drm/virtgpu_drm.h
+(the last one also carries the Linux-syscall-note exception through the
+kernel's licence texts), and GPL-2.0 for drivers/gpu/drm/virtio/virtgpu_vram.c.
+The resulting kernel image as a whole is GPL-2.0-only, and its corresponding
+source is offered in kernel/SOURCE-OFFER.md.
+
+diff --git a/drivers/gpu/drm/virtio/virtgpu_drv.h b/drivers/gpu/drm/virtio/virtgpu_drv.h
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.h
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.h
+@@ -317,6 +317,7 @@ struct virtio_gpu_fpriv {
+ /* virtgpu_ioctl.c */
+ #define DRM_VIRTIO_NUM_IOCTLS 12
+ extern struct drm_ioctl_desc virtio_gpu_ioctls[DRM_VIRTIO_NUM_IOCTLS];
++extern unsigned int virtio_gpu_blob_alignment;
+ void virtio_gpu_create_context(struct drm_device *dev, struct drm_file *file);
+
+ /* virtgpu_kms.c */
+diff --git a/drivers/gpu/drm/virtio/virtgpu_ioctl.c b/drivers/gpu/drm/virtio/virtgpu_ioctl.c
+--- a/drivers/gpu/drm/virtio/virtgpu_ioctl.c
++++ b/drivers/gpu/drm/virtio/virtgpu_ioctl.c
+@@ -38,6 +38,11 @@
+ 				    VIRTGPU_BLOB_FLAG_USE_SHAREABLE | \
+ 				    VIRTGPU_BLOB_FLAG_USE_CROSS_DEVICE)
+
++/* Host page size when it is larger than the guest's (0 = no constraint). */
++unsigned int virtio_gpu_blob_alignment;
++module_param_named(blob_alignment, virtio_gpu_blob_alignment, uint, 0400);
++MODULE_PARM_DESC(blob_alignment, "Required alignment of host3d blob sizes/offsets (power of two, 0 = none)");
++
+ /* Must be called with &virtio_gpu_fpriv.struct_mutex held. */
+ static void virtio_gpu_create_context_locked(struct virtio_gpu_device *vgdev,
+ 					     struct virtio_gpu_fpriv *vfpriv)
+@@ -114,6 +119,9 @@ static int virtio_gpu_getparam_ioctl(struct drm_device *dev, void *data,
+ 	case VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs:
+ 		value = vgdev->capset_id_mask;
+ 		break;
++	case VIRTGPU_PARAM_BLOB_ALIGNMENT:
++		value = virtio_gpu_blob_alignment;
++		break;
+ 	case VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME:
+ 		value = vgdev->has_context_init ? 1 : 0;
+ 		break;
+@@ -518,6 +526,11 @@ static int verify_blob(struct virtio_gpu_device *vgdev,
+ 		if (rc_blob->cmd_size % 4 != 0)
+ 			return -EINVAL;
+
++		if (!*guest_blob && virtio_gpu_blob_alignment &&
++		    (!is_power_of_2(virtio_gpu_blob_alignment) ||
++		     !IS_ALIGNED(rc_blob->size, virtio_gpu_blob_alignment)))
++			return -EINVAL;
++
+ 		params->ctx_id = vfpriv->ctx_id;
+ 		params->blob_id = rc_blob->blob_id;
+ 	} else {
+diff --git a/drivers/gpu/drm/virtio/virtgpu_vram.c b/drivers/gpu/drm/virtio/virtgpu_vram.c
+--- a/drivers/gpu/drm/virtio/virtgpu_vram.c
++++ b/drivers/gpu/drm/virtio/virtgpu_vram.c
+@@ -153,8 +153,9 @@ static int virtio_gpu_vram_map(struct virtio_gpu_object *bo)
+ 		return -EINVAL;
+
+ 	spin_lock(&vgdev->host_visible_lock);
+-	ret = drm_mm_insert_node(&vgdev->host_visible_mm, &vram->vram_node,
+-				 bo->base.base.size);
++	ret = drm_mm_insert_node_generic(&vgdev->host_visible_mm, &vram->vram_node,
++					 bo->base.base.size,
++					 virtio_gpu_blob_alignment, 0, 0);
+ 	spin_unlock(&vgdev->host_visible_lock);
+
+ 	if (ret)
+diff --git a/include/uapi/drm/virtgpu_drm.h b/include/uapi/drm/virtgpu_drm.h
+--- a/include/uapi/drm/virtgpu_drm.h
++++ b/include/uapi/drm/virtgpu_drm.h
+@@ -98,6 +98,7 @@ struct drm_virtgpu_execbuffer {
+ #define VIRTGPU_PARAM_CONTEXT_INIT 6 /* DRM_VIRTGPU_CONTEXT_INIT */
+ #define VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs 7 /* Bitmask of supported capability set ids */
+ #define VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME 8 /* Ability to set debug name from userspace */
++#define VIRTGPU_PARAM_BLOB_ALIGNMENT 9 /* Required alignment of host3d blob sizes (host with larger pages) */
+
+ struct drm_virtgpu_getparam {
+ 	__u64 param;

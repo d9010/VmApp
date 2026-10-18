@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Electron (V8) maps writable+executable memory for its JIT; required under the hardened runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- The microphone (SPEC 2.2 permissions.devices, SPEC 7): lets the processes that capture audio ask macOS for it (the main
+         app and, through the same file, every Electron helper, because Chromium captures in a helper process). It allows nothing
+         by itself: the loader's permission gate and macOS's own consent prompt still decide, per app and per use. There is no
+         camera entitlement: the camera is never available. NSMicrophoneUsageDescription is in Info.plist (build/package.mjs). -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>

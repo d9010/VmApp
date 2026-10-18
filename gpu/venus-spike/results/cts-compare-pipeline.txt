@@ -1,0 +1,34 @@
+native: Fail=1 NotSupported=3381 Pass=2189 
+venus: Fail=48 NotSupported=3388 Pass=2134 QualityWarning=1 
+cases in both: 5571
+outcome differs (native -> venus), summary:
+  57 Pass -> NotSupported
+  47 NotSupported -> Fail
+   3 NotSupported -> Pass
+   1 Pass -> QualityWarning
+examples (first 25):
+  dEQP-VK.pipeline.monolithic.creation_cache_control.compute_pipelines.duplicate_single_recreate_explicit_caching  (Pass -> QualityWarning)
+  dEQP-VK.pipeline.monolithic.extended_dynamic_state.three_draws_dynamic.sample_locations_disable  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.3d.format.a1b5g5r5_unorm_pack16.count_8.size.16x16x16  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.3d.format.a8_unorm.count_1.size.32x16x8  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.1d_array.format.a1b5g5r5_unorm_pack16.count_1.size.1x1_array_of_6  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.1d_array.format.a8_unorm.count_1.size.32x1_array_of_6  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.2d.format.a1b5g5r5_unorm_pack16.count_8.size.32x16  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.2d_array.format.a8_unorm.count_1.size.13x23_array_of_6  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image_view.view_type.1d.format.a1b5g5r5_unorm_pack16.subresource_range.lod_base_mip_level_array_layer_last_remaining_levels_and_layers  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image_view.view_type.2d_array.format.a1b5g5r5_unorm_pack16.subresource_range.array_size  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image_view.view_type.cube_array.format.a1b5g5r5_unorm_pack16.subresource_range.lod_base_mip_level_array_base_and_size  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.image_view.view_type.cube_array.format.a8_unorm.component_swizzle.b_a_r_g  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.color.samples_2.separate_renderpass_no_clear_dynamic  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.color.samples_4.separate_renderpass_clear_attachments_secondary_cmd_buf_general_layout_event  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.color.samples_4.separate_subpass_no_clear_dynamic_secondary_cmd_buf_general_layout  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.depth.samples_2.separate_renderpass_clear_attachments_general_layout_event  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.depth.samples_4.separate_renderpass_clear_attachments_dynamic_secondary_cmd_buf_general_layout  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.stencil.samples_2.separate_subpass_clear_attachments_general_layout  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.multisample.sample_locations_ext.draw.stencil.samples_4.separate_subpass_clear_attachments_dynamic_general_layout  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.0gba.transparent_black.gather_1.no_swizzle_hint  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.gbar.opaque_white.gather_1.no_swizzle_hint  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.igba.transparent_black.gather_1.no_swizzle_hint  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.rg1a.opaque_white.gather_1.no_swizzle_hint  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.rgb0.transparent_black.gather_1.no_swizzle_hint  (Pass -> NotSupported)
+  dEQP-VK.pipeline.monolithic.sampler.border_swizzle.a1b5g5r5_unorm_pack16.rgbi.opaque_black.gather_1.no_swizzle_hint  (Pass -> NotSupported)

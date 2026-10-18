@@ -1,0 +1,23 @@
+server: honour --file-watcher-polling again (the recursive watcher options were never passed)
+
+The server's `--file-watcher-polling <interval>[:<path>...]` option makes the recursive file watcher poll instead of relying on change
+notifications, for file systems that send none (network shares, FUSE, the virtiofs folders that a VM shares from its host).
+RemoteAgentFileSystemProviderChannel's SessionFileWatcher reads the option in its override of getRecursiveWatcherOptions(), but
+AbstractSessionFileWatcher never calls that method: it creates its DiskFileSystemProvider without options, so the recursive watch
+requests never get a polling interval and the option has no effect. Edits made outside the machine that runs the server are then not
+seen until something else touches the folder.
+
+This passes the subclass's recursive watcher options to the provider, which is what the method exists for. Without the option the result
+is undefined, the provider's default: nothing changes for a server started without --file-watcher-polling.
+
+--- a/src/vs/platform/files/node/diskFileSystemProviderServer.ts
++++ b/src/vs/platform/files/node/diskFileSystemProviderServer.ts
+@@ -289,7 +289,7 @@
+ 	) {
+ 		super();
+
+-		this.fileWatcher = this._register(new DiskFileSystemProvider(logService));
++		this.fileWatcher = this._register(new DiskFileSystemProvider(logService, { watcher: { recursive: this.getRecursiveWatcherOptions(environmentService) } }));
+
+ 		this.registerListeners(sessionEmitter);
+ 	}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>Markdown Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <button id="open" type="button">Open…</button>
+    <h2>Recent</h2>
+    <ul id="recent"></ul>
+  </aside>
+  <main>
+    <p id="status" role="status"></p>
+    <article id="content"><p class="hint">Open a Markdown file to read it here.</p></article>
+  </main>
+  <script src="api.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

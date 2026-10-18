@@ -1,0 +1,117 @@
+# Required kernel options for the vmapp guest (Linux 6.18.y, arm64).
+#
+# Adapted from d9010-native/guest/distro/kernel/kconfig-required.txt
+#
+# Checked by kernel/check-kconfig.sh against the FINAL .config (after `make olddefconfig`). The kernel build fails
+# if any line here does not match exactly. Format, one option per line:
+#   CONFIG_NAME=y            built in
+#   CONFIG_NAME="string"     exact string value
+#   CONFIG_NAME=n            must be off (not set or absent)
+# '#' starts a comment. Modules are disabled globally (CONFIG_MODULES is off), so "=m" never appears and is never
+# acceptable here.
+
+# --- Build identity -------------------------------------------------------------
+CONFIG_LOCALVERSION="-vmapp"
+CONFIG_LOCALVERSION_AUTO=n
+CONFIG_MODULES=n
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
+
+# --- Platform / boot (Virtualization.framework: device tree, GICv3, PSCI, PL031, virtio over PCI) ----
+CONFIG_ARM64=y
+CONFIG_ARM64_4K_PAGES=y
+CONFIG_ARM64_VA_BITS_48=y
+CONFIG_SMP=y
+CONFIG_OF=y
+CONFIG_ARM_GIC_V3=y
+CONFIG_ARM_GIC_V3_ITS=y
+CONFIG_ARM_ARCH_TIMER=y
+CONFIG_ARM_PSCI_FW=y
+CONFIG_COMMON_CLK=y
+CONFIG_RTC_CLASS=y
+CONFIG_RTC_HCTOSYS=y
+CONFIG_RTC_DRV_PL031=y
+CONFIG_PCI=y
+CONFIG_PCI_MSI=y
+CONFIG_PCI_HOST_GENERIC=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+CONFIG_TTY=y
+# devpts: Linux 6.18 has no CONFIG_DEVPTS_FS symbol any more; the devpts filesystem (/dev/pts, /dev/ptmx) is built
+# in exactly when UNIX98_PTYS is on, so that is what is asserted here.
+CONFIG_UNIX98_PTYS=y
+
+# --- virtio, vsock, virtiofs ---------------------------------------------------------
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_HVC_DRIVER=y
+CONFIG_HW_RANDOM=y
+CONFIG_HW_RANDOM_VIRTIO=y
+CONFIG_VIRTIO_BALLOON=y
+CONFIG_VSOCKETS=y
+CONFIG_VIRTIO_VSOCKETS=y
+CONFIG_VSOCKETS_LOOPBACK=n
+CONFIG_FUSE_FS=y
+CONFIG_VIRTIO_FS=y
+
+# --- Filesystems ------------------------------------------------------------------
+CONFIG_EROFS_FS=y
+CONFIG_EROFS_FS_XATTR=y
+CONFIG_EROFS_FS_POSIX_ACL=y
+CONFIG_EROFS_FS_SECURITY=y
+CONFIG_EROFS_FS_ZIP=y
+CONFIG_LZ4_DECOMPRESS=y
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_DEVTMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_FILE_LOCKING=y
+CONFIG_INOTIFY_USER=y
+
+# --- What static binaries, Node.js and .NET need ---------------------------------------------
+CONFIG_MULTIUSER=y
+CONFIG_FUTEX=y
+CONFIG_EPOLL=y
+CONFIG_SIGNALFD=y
+CONFIG_TIMERFD=y
+CONFIG_EVENTFD=y
+CONFIG_SHMEM=y
+CONFIG_MEMFD_CREATE=y
+CONFIG_AIO=y
+CONFIG_ADVISE_SYSCALLS=y
+CONFIG_MEMBARRIER=y
+CONFIG_FHANDLE=y
+CONFIG_RSEQ=y
+CONFIG_POSIX_TIMERS=y
+CONFIG_SYSVIPC=y
+CONFIG_PROC_SYSCTL=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+
+# --- Sockets: AF_UNIX, loopback TCP/UDP (IPv4 and IPv6) ------------------------------------
+CONFIG_NET=y
+CONFIG_UNIX=y
+CONFIG_INET=y
+CONFIG_IPV6=y
+
+# --- Hardening that must not silently drop out -------------------------------------------
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_PROC_MEM_FORCE_PTRACE=y
+CONFIG_SECURITY_DMESG_RESTRICT=y
+CONFIG_HARDENED_USERCOPY=y
+CONFIG_FORTIFY_SOURCE=y
+CONFIG_SLAB_FREELIST_HARDENED=y
+CONFIG_SLAB_FREELIST_RANDOM=y
+CONFIG_INIT_ON_ALLOC_DEFAULT_ON=y
+CONFIG_INIT_STACK_ALL_ZERO=y
+CONFIG_STACKPROTECTOR_STRONG=y
+CONFIG_VMAP_STACK=y
+CONFIG_STRICT_KERNEL_RWX=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_ARM64_PAN=y
+CONFIG_UNMAP_KERNEL_AT_EL0=y

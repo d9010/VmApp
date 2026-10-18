@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>D9010 VmApp activity monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="activity.css">
+<link rel="stylesheet" href="monitor.css">
+<link rel="stylesheet" href="wrap.css">
+</head>
+<body>
+<header class="mon-head">
+  <h1>Running apps</h1>
+  <button id="btn-library" data-action="open-library" title="Open the D9010 VmApp Launcher window">Open library</button>
+</header>
+<main id="activity" data-role="activity" aria-live="polite"></main>
+<footer class="mon-foot muted">Pills show what each app can reach right now. A pulsing pill is in use.</footer>
+<script src="dom.js"></script>
+<script src="activity.js"></script>
+<script src="monitor.js"></script>
+</body>
+</html>

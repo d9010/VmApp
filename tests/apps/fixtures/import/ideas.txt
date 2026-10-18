@@ -1,0 +1,6 @@
+# Ideas
+
+Imported from a plain text file picked through the open dialog.
+
+1. first
+2. second

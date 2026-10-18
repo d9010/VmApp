@@ -1,0 +1,92 @@
+title: Home
+description: D9010 VmApp runs desktop apps in their own small virtual machine, so an app can only touch the folders and websites you allow. Open source, for macOS.
+---
+<section class="hero">
+  <p class="kicker">Open source &middot; macOS on Apple silicon</p>
+  <h1>Run apps you don't have to trust.</h1>
+  <p class="lead">A normal app acts as you: it can read your files and talk to any server. {{name}} takes that back. Each app runs in its own small virtual machine, and you decide which folders and which websites it can reach. Nothing, by default.</p>
+  <a class="btn primary" href="/how-it-works">How it works</a><a class="btn ghost" href="/docs/start-here">Read the documentation</a><a class="btn ghost" href="{{repo}}">View on GitHub</a>
+</section>
+
+<div class="cols">
+  <div><span class="n">01</span><h3>A sealed room per app</h3><p>The app's engine runs in its own tiny VM. It starts in about half a second and sees only what you hand in.</p></div>
+  <div><span class="n">02</span><h3>A window with no reach</h3><p>The app's screen is drawn natively on your desktop, with no internet and no file access of its own.</p></div>
+  <div><span class="n">03</span><h3>You hold the keys</h3><p>The launcher asks which folders and which websites, shows every message an app sends, and lets you revoke access at any time.</p></div>
+</div>
+
+<h2>How an app is split</h2>
+<p>Every app has two halves that never touch each other directly. All messages go through the launcher, which is the one piece of trusted code on your Mac and is the same for every app.</p>
+<figure class="diagram">
+  <svg viewBox="0 0 900 330" role="img" aria-labelledby="hd-t hd-d">
+    <title id="hd-t">How an app is split</title>
+    <desc id="hd-d">The app's window and the app's engine talk only through the launcher. The engine runs in a VM that can reach only the folders you granted. The internet is blocked by default.</desc>
+    <rect class="d-box" x="1" y="1" width="898" height="328"/>
+    <text class="d-head" x="20" y="28">Your Mac</text>
+
+    <rect class="d-open" x="30" y="60" width="230" height="120"/>
+    <text class="d-t" x="46" y="92">App window</text>
+    <text class="d-s" x="46" y="116">What you see and click.</text>
+    <text class="d-s" x="46" y="136">No internet. No files.</text>
+    <text class="d-s" x="46" y="156">Talks only to its engine.</text>
+
+    <rect class="d-safe" x="335" y="60" width="230" height="120"/>
+    <text class="d-t" x="351" y="92">Launcher</text>
+    <text class="d-s" x="351" y="116">Trusted. Same for every app.</text>
+    <text class="d-s" x="351" y="136">Checks every request.</text>
+    <text class="d-s" x="351" y="156">Asks you before sharing.</text>
+
+    <rect class="d-open" x="640" y="60" width="230" height="120"/>
+    <text class="d-t" x="656" y="92">A VM for this app</text>
+    <text class="d-s" x="656" y="116">The app's engine, in any</text>
+    <text class="d-s" x="656" y="136">language. Fresh at every</text>
+    <text class="d-s" x="656" y="156">launch.</text>
+
+    <path class="d-line" d="M264 120 H331"/><path class="d-arrow" d="M264 120 l8 -5 v10z M331 120 l-8 -5 v10z"/>
+    <path class="d-line" d="M569 120 H636"/><path class="d-arrow" d="M569 120 l8 -5 v10z M636 120 l-8 -5 v10z"/>
+
+    <path class="d-line" d="M450 180 V212"/>
+    <text class="d-g" x="450" y="232" text-anchor="middle">You approve every permission here</text>
+
+    <path class="d-ok" d="M695 180 V240"/>
+    <rect class="d-safe" x="640" y="240" width="110" height="64"/>
+    <text class="d-g" x="652" y="262">&#10003; Folders</text>
+    <text class="d-s" x="652" y="282">only those you</text>
+    <text class="d-s" x="652" y="297">granted</text>
+
+    <path class="d-no" d="M815 180 V240"/>
+    <rect class="d-open" x="760" y="240" width="110" height="64"/>
+    <text class="d-t" x="772" y="262" font-size="13">&#10005; Internet</text>
+    <text class="d-s" x="772" y="282">blocked unless</text>
+    <text class="d-s" x="772" y="297">you name a site</text>
+  </svg>
+  <figcaption>Green is platform code. Dashed boxes are the app's own code, which the platform does not trust.</figcaption>
+</figure>
+
+<h2>Where to start</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>If you want to&hellip;</th><th>Read</th></tr></thead>
+  <tbody>
+    <tr><td>Understand it without any technical background</td><td><a href="/how-it-works">How it works</a></td></tr>
+    <tr><td>See exactly what is and isn't protected</td><td><a href="/security">Security</a>, then the <a href="/docs/security-model">full security model</a></td></tr>
+    <tr><td>Try the sample apps</td><td><a href="/apps">Apps</a> and <a href="/docs/try-it">Try it</a></td></tr>
+    <tr><td>Build or convert an app</td><td><a href="/docs/building-apps">Building apps</a> and <a href="/docs/converting">Converting an app</a></td></tr>
+    <tr><td>Understand the design in depth</td><td><a href="/docs/architecture">Architecture</a> and the <a href="/docs/spec">specification</a></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Status</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Part</th><th>State</th></tr></thead>
+  <tbody>
+    <tr><td>macOS 13 or later, Apple silicon</td><td class="yes">Built and tested</td></tr>
+    <tr><td>Sample apps (notes, to-do, VS Code, local AI chat and more)</td><td class="yes">Working</td></tr>
+    <tr><td>Public app catalog where anyone can publish</td><td class="maybe">Built, not open yet</td></tr>
+    <tr><td>GPU for apps (local AI models)</td><td class="maybe">Experimental, off by default</td></tr>
+    <tr><td>Windows and Linux</td><td class="maybe">Designed, not built yet</td></tr>
+  </tbody>
+</table>
+</div>
+<p>More on the <a href="/roadmap">roadmap</a>.</p>

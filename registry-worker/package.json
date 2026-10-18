@@ -1,0 +1,11 @@
+{
+  "name": "d9010-vmapp-api",
+  "private": true,
+  "type": "module",
+  "description": "The D9010 VmApp registry API as a Cloudflare Worker (api.vmapp.dev). No dependencies: Wrangler is run through npx at a pinned version.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "npx --yes wrangler@4.151.1 dev --port 8787 --ip 127.0.0.1 --local-upstream 127.0.0.1:8787",
+    "test": "node --test test/*.test.mjs"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "sections": [
+    {
+      "title": "Overview",
+      "items": [
+        { "src": "docs/START-HERE.md", "slug": "start-here", "title": "Start here", "summary": "Seven levels, from \"what is this?\" to shipping updates. Stop at any level." },
+        { "src": "docs/TRY-IT.md", "slug": "try-it", "title": "Try it", "summary": "Run the samples, build a first app, give a demo." },
+        { "src": "docs/USING.md", "slug": "using", "title": "Using the launcher", "summary": "Permissions, the Inspector, updates and resets." },
+        { "src": "docs/FAQ.md", "slug": "faq", "title": "FAQ", "summary": "Design questions and their answers." },
+        { "src": "docs/VISION.md", "slug": "vision", "title": "Vision", "summary": "Directions worth building toward, with the honest limits." },
+        { "src": "WHY.md", "slug": "why", "title": "Why D9010 VmApp?", "summary": "Why not Electron, a container or a virtual machine: the comparison, and what you give up." }
+      ]
+    },
+    {
+      "title": "Concepts",
+      "items": [
+        { "src": "docs/ARCHITECTURE.md", "slug": "architecture", "title": "Architecture", "summary": "The layers, how messages travel, and the reasons behind each design choice." },
+        { "src": "docs/SECURITY.md", "slug": "security-model", "title": "Security model", "summary": "What it promises, the threat model, and what it does not protect against." },
+        { "src": "docs/PROTOCOL.md", "slug": "protocol", "title": "Message protocol", "summary": "The bridge between an app's window, the launcher and the app's engine." },
+        { "src": "docs/PLATFORMS.md", "slug": "platforms", "title": "Platforms", "summary": "macOS today, and what Windows and Linux need." },
+        { "src": "docs/HOST-CAPABILITIES.md", "slug": "host-capabilities", "title": "Host capabilities", "summary": "Screen, input, tools, MCP and the GPU, for computer-use agents and local AI." },
+        { "src": "docs/BENCHMARKS.md", "slug": "benchmarks", "title": "Benchmarks", "summary": "How to reproduce every performance number." }
+      ]
+    },
+    {
+      "title": "Build and ship",
+      "items": [
+        { "src": "docs/BUILDING-APPS.md", "slug": "building-apps", "title": "Building apps", "summary": "The complete developer guide, from manifest to tests." },
+        { "src": "docs/CONVERTING.md", "slug": "converting", "title": "Converting an app", "summary": "Bring an Electron app or a web app with a local server." },
+        { "src": "docs/PUBLISHING.md", "slug": "publishing", "title": "Publishing", "summary": "Putting an app in a registry, owner tokens and withdrawing a version." },
+        { "src": "docs/DISTRIBUTING.md", "slug": "distributing", "title": "Distributing", "summary": "Trust, verified publishers and hosting your own registry." },
+        { "src": "docs/TOOLCHAIN.md", "slug": "toolchain", "title": "Toolchain", "summary": "What you need to build the platform and its runtimes from source." },
+        { "src": "docs/PRODUCTION.md", "slug": "production", "title": "Releasing", "summary": "Building, signing, notarizing and hosting releases." },
+        { "src": "docs/REVIEWING.md", "slug": "reviewing", "title": "Reviewing contributions", "summary": "How a change is reviewed against the governance rules." }
+      ]
+    },
+    {
+      "title": "Project",
+      "items": [
+        { "src": "SPEC.md", "slug": "spec", "title": "Specification", "summary": "The binding contract for the app format and the platform's rules." },
+        { "src": "GOVERNANCE.md", "slug": "governance", "title": "Governance", "summary": "The numbered invariants every change is reviewed against." },
+        { "src": "CONTRIBUTING.md", "slug": "contributing", "title": "Contributing", "summary": "How to contribute to the platform." },
+        { "src": "SECURITY.md", "slug": "security-policy", "title": "Security policy", "summary": "How to report a vulnerability." }
+      ]
+    }
+  ]
+}
