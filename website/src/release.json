@@ -1,21 +1,17 @@
 {
-  "version": "0.1.0",
-  "tag": "v0.1.0",
-  "commit": "a55eac63bf10b3bcb7b0de8efde27b14f4b3faff",
+  "version": "0.1.1",
+  "tag": "v0.1.1",
+  "commit": "17d099957edfd14fc9035bdff7d41f64a963cbf5",
   "date": "2026-10-18",
-  "file": "D9010-VmApp-Launcher-0.1.0-mac-arm64.zip",
-  "size": 548842591,
-  "sha256": "144e4a47afb9f97e951eb0c91130a6834a75c6277fa34463b62193936f90947e",
-  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.0/D9010-VmApp-Launcher-0.1.0-mac-arm64.zip",
-  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.0",
-  "notes": "The first public release, for macOS 13 or later on Apple silicon.",
+  "file": "D9010-VmApp-Launcher-0.1.1-mac-arm64.zip",
+  "size": 548842574,
+  "sha256": "4da221da55fc6c5b83e56fb71c33dc4b8d98f324c005722cd1f35db1b8ce2b9c",
+  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.1/D9010-VmApp-Launcher-0.1.1-mac-arm64.zip",
+  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.1",
+  "notes": "Fixes the launcher quitting as soon as it was opened. Version 0.1.0 does not start; please use this version instead.",
   "changes": [
-    "The launcher: every app's engine runs in its own small virtual machine and its window in a sandbox on your Mac, and you choose which folders and which websites each app may reach.",
-    "Fourteen sample apps come with the launcher: Load examples installs the ones you pick, and nothing is allowed until you say so.",
-    "The Inspector shows every message between an app's window and its engine, and every internet connection an app tries, live.",
-    "The launcher tells you when a newer version is available and can update itself.",
-    "Browse an app registry, install an app from it, and publish your own app from the launcher.",
-    "Apps can ask to see your screen, use the mouse and keyboard, run tools you registered, use the microphone, or use your Mac's GPU."
+    "The launcher no longer quits right after you open it on a Mac: version 0.1.0 could not find its own helper programs and stopped at start.",
+    "Downloading and unzipping the launcher no longer leaves stray ._ files inside it, which made macOS refuse to open it."
   ],
   "minimumOS": "13.0"
 }
