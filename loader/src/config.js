@@ -14,7 +14,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { defaultHome, normalizeRegistryUrl } = require('../../hostlib/store');
-const { DEFAULT_DEV_REGISTRY } = require('../../hostlib/updates');
+const { DEFAULT_DEV_REGISTRY, PUBLIC_REGISTRY } = require('../../hostlib/updates');
 
 function resolveConfig(isPackaged) {
   const root = path.resolve(__dirname, '..', '..'); // .../vmapp (dev only; inside the asar when packaged)
@@ -34,10 +34,11 @@ function resolveConfig(isPackaged) {
       ['initramfs.cpio', 'initramfs.cpio.gz', 'initramfs'].map((n) => path.join(binDir, n)).find((p) => fs.existsSync(p)) ||
       path.join(binDir, 'initramfs.cpio');
   }
-  // Prefilled in "Install from registry…" (the user sees it and can change it; nothing is contacted until they click).
-  // Dev builds fall back to the local dev registry; a packaged build has no default.
+  // The registry "Browse registry…" lists and installs from, and the one "Publish…" proposes. It is fixed, not a setting of the UI: a packaged
+  // launcher uses the public registry; a development launcher (npm start) uses the one on this Mac. VMAPP_REGISTRY (set in the environment
+  // that starts the launcher, never from a window) points either at another registry, for tests and for people who run their own.
   const envRegistry = normalizeRegistryUrl(process.env.VMAPP_REGISTRY || '');
-  const registry = envRegistry || (isPackaged ? '' : DEFAULT_DEV_REGISTRY);
+  const registry = envRegistry || (isPackaged ? PUBLIC_REGISTRY : DEFAULT_DEV_REGISTRY);
   return {
     isPackaged,
     root,

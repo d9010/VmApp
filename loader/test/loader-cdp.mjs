@@ -944,17 +944,14 @@ async function runC(baseline) {
   await waitSel(lib, '[data-role="empty"]', 'empty library (C)');
 
   // ---- install 1.0.0 from the registry through the UI (by pasting the app's page address) ----
-  step('C: Install from registry… (dialog, pasted page address, review "from <registry>")');
-  await click(lib, '[data-action="install-registry"]');
-  await waitSel(lib, '[data-role="registry-url"]', 'registry dialog');
-  assert.equal(await lib.eval(`document.querySelector('[data-role="registry-url"]').value`), regUrl, 'the registry address is prefilled from VMAPP_REGISTRY');
-  await setValue(lib, '[data-role="registry-app"]', 'not a valid id!');
-  await click(lib, '[data-action="registry-fetch"]');
-  await waitFor(async () => /not a valid app id/.test((await text(lib, '[data-role="registry-status"]')) || ''), { what: 'a plain error for a bad id' });
+  step('C: Browse registry… → Install on the app’s card (review "from <registry>")');
+  await click(lib, '#btn-browse-registry');
+  await waitSel(lib, '[data-role="browse"]', 'Browse sheet (C)');
+  assert.equal(await text(lib, '[data-role="browse-registry"]'), regUrl, 'the registry is the loader’s own (VMAPP_REGISTRY)');
   await lib.shot('10-registry-dialog');
-  await setValue(lib, '[data-role="registry-url"]', 'http://127.0.0.1:1'); // wrong registry, but the pasted page address wins
-  await setValue(lib, '[data-role="registry-app"]', `${regUrl}/apps/${ID}`);
-  await click(lib, '[data-action="registry-fetch"]');
+  await lib.eval(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+  await waitFor(async () => !(await exists(lib, '.sheet')), { what: 'Browse sheet closed (C)' });
+  await browseInstall(lib, ID, 'C');
   await waitSel(lib, '[data-role="review"]', 'registry install review', 30000);
   const rv = await sheetText(lib);
   assert.match(rv, /Loader Test 1\.0\.0/);
@@ -1327,6 +1324,19 @@ async function runD(baseline) {
 }
 
 // =============================================================================================== run E: host capabilities
+/**
+ * Starts an install from the loader's registry the way a user does it now (there is no "Install from registry…" dialog): Browse registry…,
+ * find the card by its id, press Install. The ordinary install review follows (`[data-role="review"]`), exactly as for any other install.
+ */
+async function browseInstall(c, id, what) {
+  await click(c, '#btn-browse-registry');
+  await waitSel(c, '[data-role="browse"]', `Browse sheet (${what})`);
+  await setIn(c, '[data-role="browse-query"]', id);
+  await click(c, '[data-action="browse-search"]');
+  await waitFor(async () => !((await text(c, '[data-role="browse-status"]')) || '').startsWith('Asking the registry'), { what: `the registry answered (${what})`, timeout: 30000 });
+  await waitSel(c, `[data-browse-app="${id}"] [data-action="browse-install"]`, `the card of ${id} (${what})`, 30000);
+  await click(c, `[data-browse-app="${id}"] [data-action="browse-install"]`);
+}
 const setIn = (c, sel, v) => c.eval(`(() => { const e = document.querySelector(${q(sel)}); if (!e) throw new Error('no element ' + ${q(sel)}); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
 const setChecked = (c, sel, on) => c.eval(`(() => { const e = document.querySelector(${q(sel)}); if (!e) throw new Error('no element ' + ${q(sel)}); if (e.checked !== ${!!on}) e.click(); return e.checked; })()`);
 /** A 2x screenshot of the page's visible area (device scale 2), named 2x-<name>.png. */
@@ -1813,10 +1823,7 @@ async function runE(baseline) {
 
   // ---- an update that adds host capabilities always stops and asks ----
   step('E: update that adds host capabilities: the "asks for more" sheet lists them');
-  await click(lib, '[data-action="install-registry"]');
-  await waitSel(lib, '[data-role="registry-url"]', 'registry dialog (E)');
-  await setIn(lib, '[data-role="registry-app"]', UPD);
-  await click(lib, '[data-action="registry-fetch"]');
+  await browseInstall(lib, UPD, 'E');
   await waitSel(lib, '[data-role="review"]', 'review of the registry app', 30000);
   assert.equal(await exists(lib, '[data-role="review-host"]'), false, 'version 1.0.0 asks for nothing of that kind');
   await click(lib, '[data-action="confirm-install"]');
@@ -2510,10 +2517,7 @@ async function runH(baseline) {
 
   // ---- an update that newly asks for the microphone ----
   step('H: an update that newly asks for the microphone always stops at the “asks for more” sheet');
-  await click(lib, '[data-action="install-registry"]');
-  await waitSel(lib, '[data-role="registry-url"]', 'registry dialog (H)');
-  await setIn(lib, '[data-role="registry-app"]', UPD);
-  await click(lib, '[data-action="registry-fetch"]');
+  await browseInstall(lib, UPD, 'H');
   await waitSel(lib, '[data-role="review"]', 'review of the registry app (H)', 30000);
   assert.equal(await exists(lib, '[data-role="review-devices"]'), false, 'version 1.0.0 asks for no device');
   await click(lib, '[data-action="confirm-install"]');
@@ -2974,10 +2978,7 @@ async function runI() {
 
   // ---- an update that asks for more ----
   step('I: an update that asks for more ports on a host and a new wildcard host stops at the “asks for more” sheet; the old grant does not widen');
-  await click(lib, '[data-action="install-registry"]');
-  await waitSel(lib, '[data-role="registry-url"]', 'registry dialog (I)');
-  await setIn(lib, '[data-role="registry-app"]', UPD);
-  await click(lib, '[data-action="registry-fetch"]');
+  await browseInstall(lib, UPD, 'I');
   await waitSel(lib, '[data-role="review"]', 'review of the registry app (I)', 30000);
   assert.match(await text(lib, '[data-role="review-network"]'), /api\.example\.com/);
   await click(lib, '[data-action="confirm-install"]');
@@ -4025,31 +4026,51 @@ async function runL() {
   };
 
   // ---- 1. nothing is asked until the sheet is opened ----
-  step('L: the loader starts without asking the registry anything; the library has Browse registry… and Install from registry…');
+  step('L: the loader starts without asking the registry anything; the library has Browse registry… and no "Install from registry…"');
   await waitSel(lib, '[data-app]', 'the library with the installed app');
   await sleep(2500);
   assert.deepEqual(reqLog, [], 'no request of any kind reaches the registry before the user opens Browse');
   assert.equal(await text(lib, '#btn-browse-registry'), 'Browse registry…');
-  assert.equal(await text(lib, '#btn-install-registry'), 'Install from registry…');
+  assert.equal(await exists(lib, '#btn-install-registry'), false, 'the registry is fixed: there is no second dialog that asks for an address');
+  assert.equal(await exists(lib, '[data-action="install-registry"]'), false);
   const menu = JSON.parse(fs.readFileSync(path.join(menuDir, 'menu.json'), 'utf8'));
   const fileMenu = menu.find((m) => m.label === 'File').items;
   const bItem = fileMenu.find((i) => i.id === 'file-browse-registry');
   assert.deepEqual([bItem.label, bItem.visible, bItem.enabled, bItem.accelerator], ['Browse registry…', true, true, 'CmdOrCtrl+Shift+B']);
 
   // ---- 2. open it: one request, the first page ----
-  step('L: opening Browse asks once (the default registry, most downloaded first) and shows 20 cards');
+  step('L: opening Browse asks once (the launcher’s own registry, newest first) and shows 20 cards; the registry is shown, not editable');
   await click(lib, '#btn-browse-registry');
   await waitSel(lib, SEL('browse'), 'the Browse sheet');
   expectedList++;
   await waitFor(async () => (await cardIds()).length === 20, { what: 'twenty cards', timeout: 15000 });
   expectList('after opening');
   assert.equal(await text(lib, '.sheet h2'), 'Browse registry');
-  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-registry')}').value`), R.url, 'the registry box is the loader’s default (VMAPP_REGISTRY)');
+  assert.equal(await text(lib, SEL('browse-registry')), R.url, 'the registry is the loader’s own (VMAPP_REGISTRY here, the public registry in a packaged loader)');
+  assert.equal(await lib.eval(`document.querySelectorAll('.sheet input[type="text"]').length`), 1, 'the only text box is the search: no registry address to type');
+  assert.equal(await exists(lib, '[data-action="browse-by-id"]'), false, 'no “Type an app id or link…”');
   assert.equal(await status(), `From ${R.url}: showing 20 of 25 apps.`);
+  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-sort')}').value`), 'new', 'the default order is the newest apps');
+  const first20 = await cardIds();
+  assert.equal(first20[0], `${PRE}.filler21`, 'the app published last comes first');
+  assert.equal(first20[19], `${PRE}.filler02`, 'the 20 newest of the 25');
   assert.equal(await text(lib, SEL('browse-insecure')), null, 'no plain-http warning for a registry on this computer');
-  assert.deepEqual(await lib.eval(`[...document.querySelectorAll('${SEL('browse-sort')} option')].map((o) => [o.value, o.textContent])`), [['popular', 'Most downloaded'], ['new', 'Newest'], ['updated', 'Recently updated'], ['name', 'Name (A to Z)']]);
+  assert.deepEqual(await lib.eval(`[...document.querySelectorAll('${SEL('browse-sort')} option')].map((o) => [o.value, o.textContent])`), [['new', 'Newest'], ['popular', 'Most downloaded'], ['updated', 'Recently updated'], ['name', 'Name (A to Z)']]);
   assert.equal(await exists(lib, '[data-action="browse-more"]'), true);
   assert.equal(await lib.eval(`document.querySelector('.bmore').hidden`), false);
+
+  // ---- 2b. Show more ----
+  step('L: Show more continues the list: one more request, five more cards, no repeat, the button goes away');
+  await click(lib, '[data-action="browse-more"]');
+  expectedList++;
+  await settled();
+  expectList('after Show more');
+  let ids = await cardIds();
+  assert.equal(ids.length, 25);
+  assert.equal(new Set(ids).size, 25, 'no app twice');
+  assert.equal(ids[24], `${PRE}.notes`, 'the first app published is last');
+  assert.equal(await status(), `From ${R.url}: showing 25 of 25 apps.`);
+  assert.equal(await lib.eval(`document.querySelector('.bmore').hidden`), true, 'nothing more to show');
 
   // ---- 3. what a card says ----
   step('L: a card: name, publisher label as the registry presents it, description, version, size, downloads and the registry’s permission summary');
@@ -4069,7 +4090,7 @@ async function runL() {
   const filler = await cardInfo(`${PRE}.filler01`);
   assert.deepEqual([filler.publisher, filler.level], ['Unverified publisher', 'unverified'], 'an unverified publisher is shown as that, never by the name it claims');
   assert.ok(!JSON.stringify(await lib.eval(`document.querySelector('${SEL('browse')}').textContent`)).includes('Claimed Publisher'), 'the publisher’s own claimed name appears nowhere');
-  assert.equal(await lib.eval(`document.querySelectorAll('.bicon').length`), 20, 'every card has the placeholder icon');
+  assert.equal(await lib.eval(`document.querySelectorAll('.bicon').length`), 25, 'every card has the placeholder icon');
 
   // ---- 4. an app that is already installed ----
   step('L: an installed app says Installed <version> and has no Install button; the registry’s other version is stated plainly');
@@ -4086,18 +4107,6 @@ async function runL() {
   assert.equal(evil.injected, 0, 'no img, script, b, i, a, iframe, svg or style element came out of the text');
   assert.equal(await lib.eval(`typeof window.__pwned`), 'undefined', 'nothing ran');
   assert.equal(await lib.eval(`document.querySelectorAll('.blist img, .blist script, .blist iframe').length`), 0);
-
-  // ---- 6. Show more ----
-  step('L: Show more continues the list: one more request, five more cards, no repeat, the button goes away');
-  await click(lib, '[data-action="browse-more"]');
-  expectedList++;
-  await settled();
-  expectList('after Show more');
-  let ids = await cardIds();
-  assert.equal(ids.length, 25);
-  assert.equal(new Set(ids).size, 25, 'no app twice');
-  assert.equal(await status(), `From ${R.url}: showing 25 of 25 apps.`);
-  assert.equal(await lib.eval(`document.querySelector('.bmore').hidden`), true, 'nothing more to show');
 
   // ---- 7. long text stays inside its box ----
   step('L: 480 unbroken characters, a 60-character name and a long version stay inside the card and the sheet (and the same check finds the overflow with wrap.css off)');
@@ -4130,19 +4139,23 @@ async function runL() {
   await waitFor(async () => (await overflowing('.sheet')).length === 0, { what: 'wrap.css applied again' }); // a re-enabled style sheet is applied a moment later
 
   // ---- 8. the sort ----
-  step('L: sort: each change is one request; Newest puts the last published first; Name is A to Z');
-  await setSort('new');
-  expectList('sort: newest');
-  ids = await cardIds();
-  assert.equal(ids[0], `${PRE}.filler21`, 'the app published last comes first');
-  assert.equal(ids.length, 20);
-  assert.equal(await status(), `From ${R.url}: showing 20 of 25 apps.`);
+  step('L: sort: each change is one request and starts the list again; Name is A to Z, Recently updated puts the app with a new version first, Newest is back to the default');
   await setSort('name');
   expectList('sort: name');
+  ids = await cardIds();
+  assert.equal(ids.length, 20, 'a new sort starts at the first page');
+  assert.equal(await status(), `From ${R.url}: showing 20 of 25 apps.`);
   const names = await lib.eval(`[...document.querySelectorAll('[data-role="browse-name"]')].map((e) => e.textContent.toLowerCase())`);
   assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)), 'A to Z');
+  await setSort('updated');
+  expectList('sort: updated');
+  assert.equal((await cardIds())[0], `${PRE}.already`, 'the app whose newer version was published last comes first');
   await setSort('popular');
   expectList('sort: popular');
+  assert.equal((await cardIds()).length, 20);
+  await setSort('new');
+  expectList('sort: newest again');
+  assert.equal((await cardIds())[0], `${PRE}.filler21`);
 
   // ---- 9. search ----
   step('L: search: Search is one request; the list is what matches; nothing matching says so; clearing it lists everything again');
@@ -4230,58 +4243,20 @@ async function runL() {
   expectList('after the install, reopened');
   const nowInstalled = await cardInfo(`${PRE}.notes`);
   assert.deepEqual([nowInstalled.installed, nowInstalled.hasInstall], ['Installed 1.0.0', false]);
-  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-registry')}').value`), R.url);
+  assert.equal(await text(lib, SEL('browse-registry')), R.url);
 
-  // ---- 13. type an id instead ----
-  step('L: “Type an app id or link…” opens the ordinary dialog with this registry filled in');
-  await click(lib, '[data-action="browse-by-id"]');
-  await waitSel(lib, SEL('registry-url'), 'the Install from a registry dialog');
-  assert.equal(await lib.eval(`document.querySelector('${SEL('registry-url')}').value`), R.url);
-  assert.equal(await text(lib, '.sheet h2'), 'Install from a registry');
-  await closeSheets();
-  // the header button still opens the same dialog, filled from the loader's default (a click passes an event, not an address)
-  await click(lib, '#btn-install-registry');
-  await waitSel(lib, SEL('registry-url'), 'the Install from a registry dialog (header button)');
-  assert.equal(await lib.eval(`document.querySelector('${SEL('registry-url')}').value`), R.url);
-  assert.equal(await lib.eval(`document.querySelector('${SEL('registry-app')}').value`), '');
-  expectList('after the dialogs');
-  await closeSheets();
-
-  // ---- 14. errors ----
-  step('L: a dead registry and a bad address give plain errors; the right one works again');
-  await click(lib, '#btn-browse-registry');
-  await waitSel(lib, SEL('browse'), 'the Browse sheet (errors)');
-  const deadPort = await new Promise((resolve) => {
-    const s = require('node:net').createServer();
-    s.listen(0, '127.0.0.1', () => {
-      const p = s.address().port;
-      s.close(() => resolve(p));
-    });
-  });
-  const dead = `http://127.0.0.1:${deadPort}`;
-  await setIn(lib, SEL('browse-registry'), dead);
-  await click(lib, '[data-action="browse-search"]');
-  await settled();
-  assert.match(await status(), new RegExp(`^Cannot reach the registry at ${dead.replace(/\./g, '\\.')} \\(ECONNREFUSED\\)`));
-  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-status')}').className`), 'err');
-  assert.deepEqual(await cardIds(), [], 'the old list is not left under an error about another registry');
-  await setIn(lib, SEL('browse-registry'), 'localhost:8790');
-  await click(lib, '[data-action="browse-search"]');
-  await settled();
-  assert.equal(await status(), 'Enter the registry address (an http or https address).');
-  await setIn(lib, SEL('browse-registry'), '   ');
-  await click(lib, '[data-action="browse-search"]');
-  await settled();
-  assert.equal(await status(), 'Enter the registry address (an http or https address).');
-  expectList('after the errors');
-  await setIn(lib, SEL('browse-registry'), `${R.url}/`);
-  await setIn(lib, SEL('browse-query'), '');
-  await click(lib, '[data-action="browse-search"]');
+  // ---- 13. no way to name another registry ----
+  step('L: there is no “Type an app id or link…”, no “Install from registry…” and no address box: the registry is the loader’s own');
+  assert.equal(await exists(lib, '[data-action="browse-by-id"]'), false);
+  assert.equal(await exists(lib, SEL('registry-url')), false);
+  assert.equal(await exists(lib, '#btn-install-registry'), false);
+  assert.equal(await lib.eval(`typeof loader.registryBrowse`), 'function');
+  // the page cannot pass an address either: whatever it passes, the main process asks its own registry
   expectedList++;
-  await settled();
-  expectList('after recovering');
-  assert.equal((await cardIds()).length, 20);
-  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-registry')}').value`), R.url, 'the address is shown normalized');
+  const viaPage = await lib.eval(`loader.registryBrowse({ registry: 'http://127.0.0.1:1', q: '', sort: 'name', offset: 0 }).then((r) => r.registry, (e) => 'error: ' + e.message)`);
+  assert.equal(viaPage, R.url, 'an address passed by the page is ignored');
+  expectList('after the page tried to name a registry');
+  await closeSheets();
 
   // ---- 15. the page itself has no network and no Node ----
   step('L: the library page cannot reach the network itself (CSP) and has no Node');
@@ -4305,7 +4280,7 @@ async function runL() {
   await waitSel(lib, SEL('browse'), 'the Browse sheet from the File menu');
   await sleep(300);
   expectList('after File → Browse registry…');
-  assert.equal((await cardIds()).length, 20);
+  assert.deepEqual(await cardIds(), [`${PRE}.notes`], 'the last search (Browse Notes) is what the sheet had');
   await click(lib, '[data-action="browse-close"]');
   await waitFor(async () => !(await exists(lib, '.sheet')), { what: 'Close' });
 
@@ -4317,10 +4292,22 @@ async function runL() {
   assert.equal(listReqs(), expectedList);
   assert.equal(testVms(homeL).length, 0);
   assert.deepEqual((await banners()).filter((b) => /^banner error/.test(b)), [], 'no error banner');
+
+  // ---- 18. a registry that cannot be reached ----
+  step('L: when the registry cannot be reached the sheet says so plainly and shows no old list under that error');
+  await R.close();
+  await click(lib, '#btn-browse-registry');
+  await waitSel(lib, SEL('browse'), 'the Browse sheet (error)');
+  await setIn(lib, SEL('browse-query'), '');
+  await click(lib, '[data-action="browse-search"]');
+  await settled();
+  assert.match(await status(), new RegExp(`^Cannot reach the registry at ${R.url.replace(/\./g, '\\.')} \\(ECONNREFUSED\\)`));
+  assert.equal(await lib.eval(`document.querySelector('${SEL('browse-status')}').className`), 'err');
+  assert.deepEqual(await cardIds(), [], 'no old list under an error');
+  await closeSheets();
   dropConns();
   await killLoader(L, 'SIGTERM', 30000);
   assert.ok(!fs.readFileSync(path.join(ROOT, 'loader-L.log'), 'utf8').includes('unhandled rejection'), 'no unhandled rejection in the loader log');
-  await R.close();
   regH.rmrf(R.dir);
   step('run L passed');
 }
@@ -4631,7 +4618,8 @@ async function runY() {
     await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the update card', timeout: 20000 });
     const t = await cardText(lib);
     assert.match(t, /Launcher 0\.2\.0 is available/);
-    assert.match(t, /You have 0\.1\.0\./);
+    const RUNNING = JSON.parse(fs.readFileSync(path.join(LOADER, 'package.json'), 'utf8')).version; // the version of the launcher under test
+    assert.ok(t.includes(`You have ${RUNNING}.`), `the card says which version is running (${RUNNING})`);
     assert.match(t, /Released October 20, 2026|Released 20 October 2026|Released .*2026/);
     assert.match(t, /about 548 MB/);
     assert.match(t, /The launcher can update itself\./);
@@ -4683,10 +4671,10 @@ async function runY() {
     await click(lib, '[data-action="update-later"]');
 
     step('Y: "up to date" is said only when you ask; a broken update server is explained; nothing crashes');
-    feed.version = '0.1.0';
+    feed.version = RUNNING;
     clickMenuY('app-check-updates');
     await waitFor(async () => (await phaseY(lib)) === 'uptodate', { what: 'the up-to-date card', timeout: 15000 });
-    assert.match(await cardText(lib), /You have the newest launcher \(0\.1\.0\)\./);
+    assert.ok((await cardText(lib)).includes(`You have the newest launcher (${RUNNING}).`));
     await click(lib, '[data-action="update-dismiss"]');
     await waitFor(async () => (await phaseY(lib)) === null, { what: 'the card gone' });
     status = 500;

@@ -183,17 +183,18 @@ class Library {
   // ------------------------------------------------------------------------------------------ Browse registry
 
   /**
-   * "Browse registry…": one page of the app list of the registry the user named (hostlib/updates.js browseRegistry: the only
-   * network code). Called when the user opens the sheet, presses Search, changes the sort or presses "Show more"; never by
-   * itself. `opts` = {q, sort, offset} from the page, re-checked there. The request carries the search text, the sort and the
-   * page: no app id, no list of what is installed here (INV-G3); the page marks the apps it already has from its own list.
-   * What comes back is untrusted text cut down to plain fields (a publisher's name and description, the registry's publisher
-   * label): the page inserts it as text only. Installing from a card is `lib:registryFetch`, with its review and permission sheet.
+   * "Browse registry…": one page of the app list of the launcher's registry (`registryDefault`, fixed in loader/src/config.js: the page
+   * cannot name another; hostlib/updates.js browseRegistry is the only network code). Called when the user opens the sheet, presses
+   * Search, changes the sort or presses "Show more"; never by itself. `opts` = {q, sort, offset} from the page, re-checked there. The
+   * request carries the search text, the sort and the page: no app id, no list of what is installed here (INV-G3); the page marks
+   * the apps it already has from its own list. What comes back is untrusted text cut down to plain fields (a publisher's name and
+   * description, the registry's publisher label): the page inserts it as text only. Installing from a card is `lib:registryFetch`,
+   * with its review and permission sheet.
    * Returns {registry (normalized), insecure (plain http to another computer), q, sort, offset, total, next, items}.
    */
-  async registryBrowse(registryText, opts) {
-    const registry = normalizeRegistryUrl(typeof registryText === 'string' ? registryText : '');
-    if (!registry) throw new Error('Enter the registry address (an http or https address).');
+  async registryBrowse(opts) {
+    const registry = normalizeRegistryUrl(this.registryDefault || '');
+    if (!registry) throw new Error('This launcher has no registry to browse.');
     const o = opts && typeof opts === 'object' ? opts : {};
     const r = await this.updates.browseRegistry(registry, { q: o.q, sort: o.sort, offset: o.offset, deadlineMs: 10000 });
     return { registry: r.registry, insecure: isInsecureRemote(r.registry), q: r.q, sort: r.sort, offset: r.offset, total: r.total, next: r.next, items: r.items };
@@ -1097,7 +1098,7 @@ class Library {
     // ---- registry: install, update choice, versions (SPEC 8.1). Each handler is something the user clicked. ----
     handle('lib:registryDefault', () => ({ registry: this.registryDefault }));
 
-    handle('lib:registryBrowse', (parent, registryText, opts) => this.registryBrowse(registryText, opts));
+    handle('lib:registryBrowse', (parent, opts) => this.registryBrowse(opts));
 
     handle('lib:registryFetch', async (parent, registryText, appText) => {
       const ref = parseAppRef(String(appText), String(registryText));

@@ -69,8 +69,8 @@ if (page === 'library.html') {
     copyText: (text) => call('lib:copyText', String(text)),
     // registry: install, update choice, versions (each is something the user clicked)
     registryDefault: () => call('lib:registryDefault'),
-    // Browse registry…: one page of a registry's app list; the page names only the registry, the search text, the sort and the offset
-    registryBrowse: (registry, opts) => call('lib:registryBrowse', String(registry), { q: String((opts && opts.q) || ''), sort: String((opts && opts.sort) || 'popular'), offset: Number(opts && opts.offset) || 0 }),
+    // Browse registry…: one page of the launcher's registry (fixed in the main process; the page cannot name another): the search text, the sort and the offset
+    registryBrowse: (opts) => call('lib:registryBrowse', { q: String((opts && opts.q) || ''), sort: String((opts && opts.sort) || 'new'), offset: Number(opts && opts.offset) || 0 }),
     registryFetch: (registry, app) => call('lib:registryFetch', String(registry), String(app)),
     setPolicy: (id, choice) => call('lib:setPolicy', id, choice),
     versions: (id) => call('lib:versions', id),

@@ -3,6 +3,15 @@
 What changed in each version of the D9010 VmApp Launcher, newest first. The launcher shows the latest entry on its update card, the
 website's download page links here, and each GitHub release carries the same text.
 
+## [0.1.2] - 2026-10-18
+
+The launcher now uses one app registry, ours, and shows the newest apps first.
+
+### Changed
+
+- **Browse registry…** always lists the D9010 VmApp registry, newest apps first. You can search it and sort it by newest, most downloaded, recently updated or name.
+- There is no longer a registry address to type: **Install from registry…** and **Type an app id or link…** are gone. To install an app, find it in **Browse registry…**, or use **Install from file…**.
+
 ## [0.1.1] - 2026-10-18
 
 Fixes the launcher quitting as soon as it was opened. Version 0.1.0 does not start; please use this version instead.

@@ -54,8 +54,9 @@ npm test                         # = node test/loader-cdp.mjs  (real VMs, see "T
   ever granted (no grants file is written) and nothing is launched.
 - **Browse registry** (`Library.registryBrowse` / `lib:registryBrowse` in `src/library.js`, `Updates.browseRegistry` in
   `../hostlib/updates.js`, the sheet in `ui/library.js`; the **Browse registry…** header button and **File → Browse registry…**
-  (⇧⌘B)): search the app list of a registry the user names (`GET /api/apps?sort=&q=&limit=&offset=`) and install from a card.
-  The registry is asked only when the sheet opens, or the user presses **Search**, changes the sort (most downloaded, newest,
+  (⇧⌘B)): list the app list of the launcher's own registry (`cfg.registry`: the public registry when packaged, the local one in a development
+  build, or `$VMAPP_REGISTRY`; the page cannot name another) (`GET /api/apps?sort=&q=&limit=&offset=`), newest first, and install from a card.
+  The registry is asked only when the sheet opens, or the user presses **Search**, changes the sort (newest, most downloaded,
   recently updated, name) or presses **Show more** (20 per page); never at start-up, and a reopened sheet shows what it had.
   The request carries the search text, the sort and the page, nothing else. It runs in the main process (the page has no network,
   CSP `connect-src 'none'`): 4 MiB cap, 10 s total deadline, no redirects, plain `http://` to another computer flagged. The answer is
@@ -222,9 +223,7 @@ All of this is loader UI (INV-B5); the network code is one module, [`../hostlib/
 *Always latest*; requests carry the app id, the installed version and the choice, nothing else; 5 s timeout; no
 redirects). The loader itself has no network API, so `tools/check-invariants` has nothing to flag.
 
-- **Install from registry...** (header button): a dialog asks for the registry address (prefilled from
-  `$VMAPP_REGISTRY`; dev builds fall back to the local dev registry, packaged builds have no default) and an app id or
-  a pasted app-page address (`<registry>/apps/<id>`, which also sets the registry). The loader fetches the newest
+- **Install** on a Browse card (there is no separate "Install from registry..." dialog and no address box: the registry is fixed). The loader fetches the newest
   non-withdrawn version, verifies it (sha256 header, package, package id header, id and version) and shows the normal
   install review with a "Source: from <registry>" row. Nothing is installed until *Install*; then `source.json` is written.
   Plain `http` to anything but this computer gets a warning line in the review.
@@ -309,7 +308,7 @@ loader quits. The loader's UI, all loader-owned (INV-B5):
 | `VMAPP_TEST_DEVTOOLS_LOG` | file; every window that finishes loading is probed once (the View-menu path, then a direct `openDevTools()`) and one JSON line `{kind, appId, win, requested, viaMenu, openAfterMenu, directEvent, openAfterDirect}` is appended. It also turns on the packaged-mode `devtools-opened` closer so the test can see it work (run F) |
 | `VMAPP_EXAMPLES_DIR` | the folder "Load examples" reads (`*.vmapp` and `README.md`; default `out/examples`; `src/config.js`; ignored when packaged, which reads `<Resources>/vmapp/examples`). Run K points it at fixture apps |
 | `VMAPP_TEST_MENU_DIR` | a folder; the loader writes `menu.json` (every menu and item: id, label, enabled, visible, accelerator) when the menu is built, and every 100 ms looks for `click.txt` holding a menu item id, deletes it, clicks that item as a user would and appends `{id, found, enabled}` to `clicked.jsonl` (the menu cannot be reached over CDP). Ignored when packaged |
-| `VMAPP_REGISTRY` | (not a test hook: honoured in packaged builds too) the address prefilled in *Install from registry...* |
+| `VMAPP_REGISTRY` | (not a test hook: honoured in packaged builds too) the registry the launcher browses, installs from and proposes for *Publish…*; without it a packaged build uses `https://api.vmapp.dev` and a development build `http://127.0.0.1:8790` |
 | `--remote-debugging-port=N` | passed through to Chromium (use `127.0.0.1`); the CDP test uses 9250 (`CDP_PORT=<port>` changes it, with `VMAPP_WORK=<absolute dir>` for the scratch space, so two runs can coexist) |
 | `VMAPP_LOADER_DEBUG=1` | also print debug log lines |
 
@@ -332,7 +331,7 @@ loader quits. The loader's UI, all loader-owned (INV-B5):
 3. **run A2**: quitting the loader with a running app stops it;
 4. **run B** (`VMAPP_TEST_GRANTS`, no sheet): `kill -9` the loader and assert the VM is gone;
 5. **run C** (versions and updates, against the REAL `registry/server.js` on a free port, data under `$VMAPP_WORK/loader-test/`): publishes
-   1.0.0 of the fixture and installs it through *Install from registry...* (pasted page address, review "from
+   1.0.0 of the fixture and installs it from its card in *Browse registry...* (review "from
    <registry>", `source.json`); sets *Latest compatible*; publishes 1.1.0 and 2.0.0; Launch runs 1.1.0 and not 2.0.0;
    publishes 1.2.0 with an extra folder: Launch shows "asks for more", *Keep* launches 1.1.0; a withdrawn current
    version shows its reason; *Check for updates* + *Update and review permissions*; Versions... (registry list is

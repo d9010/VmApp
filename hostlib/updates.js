@@ -3,11 +3,10 @@
 //
 // INV-G3 (no telemetry, user-initiated network only): nothing in this file runs by itself. Its functions are reached
 // only from paths the user chose:
-//   - "Install from registry…" (the user typed the registry and the app id),
-//   - "Browse registry…" (File menu or library button) and its search box: one page of the app list of the registry the
-//     user named (browseRegistry() below), asked for when the user opens the sheet, presses Search, changes the sort or
-//     presses "Show more"; never by itself, never at start-up, never ahead of time. Installing from a card is the
-//     "Install from registry…" path,
+//   - "Browse registry…" (File menu or library button) and its search box: one page of the app list of the launcher's
+//     registry (browseRegistry() below), asked for when the user opens the sheet, presses Search, changes the sort or
+//     presses "Show more"; never by itself, never at start-up, never ahead of time. Installing from a card downloads
+//     that app from the same registry (the user pressed Install),
 //   - "Check for updates" and "Versions…" -> "Show versions from the registry" (the user clicked),
 //   - Launch of an app whose update choice the user set to "Latest compatible" or "Always latest",
 //   - "Publish…" on an app's card, after the user filled in the sheet and pressed Publish (publish() below),
@@ -37,7 +36,9 @@ const { ID_RE, SEMVER_RE, RUNTIMES, compareVersions } = require('./manifest');
 const { normalizeRegistryUrl } = require('./store');
 const { netDiff } = require('./network');
 
-/** Dev default only (the loader's packaged build has no default: the user types the address). */
+/** The app registry of a packaged launcher: the one "Browse registry…" lists and installs from. Not a setting in the UI. */
+const PUBLIC_REGISTRY = 'https://api.vmapp.dev';
+/** The registry of a development launcher (`npm start`): a registry running on this Mac. */
 const DEFAULT_DEV_REGISTRY = 'http://127.0.0.1:8790';
 const CHECK_TIMEOUT_MS = 5000;
 const TMP_PREFIX = 'vmapp-dl-';
@@ -338,7 +339,7 @@ async function getJson(url, deadlineMs) {
 // Anything else the registry sent is dropped. The loader's UI inserts these as text nodes only.
 
 /** The sort orders of GET /api/apps. */
-const BROWSE_SORTS = ['popular', 'new', 'updated', 'name'];
+const BROWSE_SORTS = ['new', 'popular', 'updated', 'name']; // the first is the default: the newest apps
 const BROWSE_PAGE = 20;
 const BROWSE_MAX_PAGE = 50;
 const BROWSE_MAX_Q = 100; // the registry refuses a longer search text itself (400)
@@ -394,7 +395,7 @@ function browseItem(x) {
 function browseParams(o = {}) {
   const q = typeof o.q === 'string' ? o.q.replace(UNSAFE_TEXT_RE, ' ').replace(/\s+/g, ' ').trim() : '';
   if (q.length > BROWSE_MAX_Q) throw new UpdateError(`The search text can have at most ${BROWSE_MAX_Q} characters.`);
-  const sort = o.sort === undefined || o.sort === null || o.sort === '' ? 'popular' : o.sort;
+  const sort = o.sort === undefined || o.sort === null || o.sort === '' ? 'new' : o.sort;
   if (!BROWSE_SORTS.includes(sort)) throw new UpdateError('That sort order is not one the registry offers.');
   const offset = Number.isSafeInteger(o.offset) && o.offset > 0 ? Math.min(o.offset, BROWSE_MAX_OFFSET) : 0;
   const limit = Number.isSafeInteger(o.limit) && o.limit > 0 ? Math.min(o.limit, BROWSE_MAX_PAGE) : BROWSE_PAGE;
@@ -486,7 +487,7 @@ class Updates {
 
   /**
    * One page of the app list of a registry (GET /api/apps), for the "Browse registry…" sheet. `registry` is the address the user
-   * named. opts: { q (at most 100 characters), sort ('popular' | 'new' | 'updated' | 'name'), offset, limit (1-50, default 20),
+   * named. opts: { q (at most 100 characters), sort ('new' (default) | 'popular' | 'updated' | 'name'), offset, limit (1-50, default 20),
    * deadlineMs }. The request carries the search text, the sort and the page: nothing else (INV-G3). The answer is cut down to
    * plain data (see cleanBrowseList), at most 4 MiB of it, within the deadline; redirects are not followed.
    * @returns {Promise<{registry, q, sort, offset, limit, total, next: number|null, items: {id, name, publisher: {level, label},
@@ -1159,6 +1160,7 @@ module.exports = {
   cleanBrowseList,
   BROWSE_SORTS,
   BROWSE_PAGE,
+  PUBLIC_REGISTRY,
   DEFAULT_DEV_REGISTRY,
   CHECK_TIMEOUT_MS,
 };

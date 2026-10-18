@@ -711,68 +711,17 @@ async function showVersions(id) {
   });
 }
 
-// ---------------------------------------------------------------------------------------------- install from a registry
-async function installFromRegistry(prefill) {
-  let def = typeof prefill === 'string' ? prefill : ''; // the Browse sheet passes the registry it was showing (a click passes an event)
-  if (!def) {
-    try {
-      def = (await loader.registryDefault()).registry || '';
-    } catch {
-      /* no default */
-    }
-  }
-  const reg = h('input', { type: 'text', value: def, spellcheck: 'false', placeholder: 'registry address', dataset: { role: 'registry-url' } });
-  const app = h('input', { type: 'text', spellcheck: 'false', placeholder: 'app id, or the address of its page in the registry', dataset: { role: 'registry-app' } });
-  const status = h('div', { class: 'muted', dataset: { role: 'registry-status' } });
-  let closed = false;
-  const go = async () => {
-    const find = m.buttons[1];
-    find.disabled = true;
-    status.className = 'muted';
-    status.textContent = 'Contacting the registry…';
-    try {
-      const r = await loader.registryFetch(reg.value, app.value);
-      if (closed) return void loader.cancelInstall().catch(() => {});
-      m.close();
-      showReview(r, { done: (ver) => banner('info', `Installed ${r.review.manifest.name} ${ver} from ${r.review.source.registry}.`) });
-    } catch (e) {
-      status.className = 'err';
-      status.textContent = e.message;
-      find.disabled = false;
-    }
-  };
-  for (const el of [reg, app]) el.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-  const m = openModal({
-    title: 'Install from a registry',
-    onCancel: () => { closed = true; },
-    body: h(
-      'div',
-      { class: 'formgrid' },
-      h('div', { class: 'muted' }, 'This contacts the registry you name, and sends it nothing but the app id. You will review the app before anything is installed.'),
-      h('label', {}, 'Registry address'),
-      reg,
-      h('label', {}, 'App id or app page address'),
-      app,
-      status,
-    ),
-    buttons: [
-      { label: 'Cancel', action: 'cancel', onclick: () => { closed = true; m.close(); } },
-      { label: 'Find app', action: 'registry-fetch', kind: 'primary', onclick: go },
-    ],
-  });
-  app.focus();
-}
-
 // ---------------------------------------------------------------------------------------------- Browse registry
-// A loader-owned sheet (INV-B5): search the app list of a registry the user names, and install from a card. Everything on a card is
-// untrusted text (publishers write the names and descriptions, the registry writes the publisher label), so it is only ever inserted
-// as text nodes, from the cut-down fields the loader's main process sends (hostlib/updates.js browseRegistry); the page itself has no
-// network. The registry is asked only when the sheet opens or the user presses Search, changes the sort or presses “Show more”.
-// Install is the same verified path as “Install from registry…”: download, checks, then the install review and the permission sheet.
-// Nothing is installed from a card without that review.
+// A loader-owned sheet (INV-B5): the app list of the launcher's registry (fixed by the main process; this page cannot name another),
+// newest first, which can be searched and re-sorted, and install from a card. Everything on a card is untrusted text (publishers
+// write the names and descriptions, the registry writes the publisher label), so it is only ever inserted as text nodes, from the
+// cut-down fields the loader's main process sends (hostlib/updates.js browseRegistry); the page itself has no network. The registry is
+// asked only when the sheet opens or the user presses Search, changes the sort or presses “Show more”.
+// Install is the verified path: download, checks, then the install review and the permission sheet. Nothing is installed from a card
+// without that review.
 const BROWSE_SORTS = [
-  ['popular', 'Most downloaded'],
   ['new', 'Newest'],
+  ['popular', 'Most downloaded'],
   ['updated', 'Recently updated'],
   ['name', 'Name (A to Z)'],
 ];
@@ -829,12 +778,12 @@ function browseCard(it, install) {
 async function openBrowse() {
   let def = '';
   try {
-    def = (await loader.registryDefault()).registry || '';
+    def = (await loader.registryDefault()).registry || ''; // shown only: the main process decides which registry is asked
   } catch {
-    /* no default */
+    /* no registry */
   }
-  const st = browseState || { registry: '', q: '', sort: 'popular', items: [], next: null, total: 0, insecure: false, loaded: false };
-  const reg = h('input', { type: 'text', value: st.registry || def, spellcheck: 'false', placeholder: 'registry address', 'aria-label': 'Registry address', dataset: { role: 'browse-registry' } });
+  const st = browseState || { registry: '', q: '', sort: 'new', items: [], next: null, total: 0, insecure: false, loaded: false };
+  const reg = h('span', { class: 'mono', dataset: { role: 'browse-registry' } }, st.registry || def || 'none');
   const qIn = h('input', { type: 'text', value: st.q, spellcheck: 'false', maxlength: '100', placeholder: 'Search by name, description or app id', 'aria-label': 'Search', dataset: { role: 'browse-query' } });
   const sortSel = h('select', { 'aria-label': 'Sort', dataset: { role: 'browse-sort' } }, BROWSE_SORTS.map(([v, t]) => h('option', { value: v }, t)));
   sortSel.value = st.sort;
@@ -887,7 +836,7 @@ async function openBrowse() {
   // append = “Show more”: continues the list on screen (same registry, search and sort), whatever the boxes say now
   const run = async (append) => {
     const my = ++browseSeq;
-    const ask = append ? { registry: st.registry, q: st.q, sort: st.sort, offset: st.next } : { registry: reg.value, q: qIn.value, sort: sortSel.value, offset: 0 };
+    const ask = append ? { q: st.q, sort: st.sort, offset: st.next } : { q: qIn.value, sort: sortSel.value, offset: 0 };
     status.className = 'muted';
     status.textContent = 'Asking the registry…';
     moreErr.textContent = '';
@@ -900,12 +849,12 @@ async function openBrowse() {
       warn.textContent = '';
     }
     try {
-      const r = await loader.registryBrowse(ask.registry, ask);
+      const r = await loader.registryBrowse(ask);
       if (my !== browseSeq) return;
       const known = new Set(st.items.map((x) => x.id));
       Object.assign(st, { registry: r.registry, q: r.q, sort: r.sort, next: r.next, total: r.total, insecure: r.insecure, loaded: true, items: st.items.concat(r.items.filter((x) => !known.has(x.id))) });
       browseState = st;
-      reg.value = r.registry;
+      reg.textContent = r.registry;
       render();
     } catch (e) {
       if (my !== browseSeq) return;
@@ -923,7 +872,7 @@ async function openBrowse() {
   searchBtn.addEventListener('click', () => run(false));
   moreBtn.addEventListener('click', () => run(true));
   sortSel.addEventListener('change', () => run(false));
-  for (const el of [reg, qIn]) el.addEventListener('keydown', (e) => e.key === 'Enter' && run(false));
+  qIn.addEventListener('keydown', (e) => e.key === 'Enter' && run(false));
 
   const m = openModal({
     title: 'Browse registry',
@@ -932,24 +881,20 @@ async function openBrowse() {
     body: h(
       'div',
       { class: 'browse', dataset: { role: 'browse' } },
-      h('div', { class: 'muted' }, 'Find apps in a registry you name. The names, descriptions and publisher labels below are what that registry says, shown as given; this loader cannot check them. Installing downloads the package and checks it, then shows you everything the app asks for before anything is installed.'),
-      h('div', { class: 'bbar' }, h('label', {}, 'Registry'), reg),
-      h('div', { class: 'bbar' }, qIn, sortSel, searchBtn),
+      h('div', { class: 'muted' }, 'The newest apps first; search by name, description or app id, or change the order. The names, descriptions and publisher labels below are what the registry says, shown as given; this launcher cannot check them. Installing downloads the package and checks it, then shows you everything the app asks for before anything is installed.'),
+      h('div', { class: 'bbar muted' }, h('label', {}, 'Registry'), reg),
+      h('div', { class: 'bbar' }, qIn, h('label', { class: 'muted' }, 'Sort by'), sortSel, searchBtn),
       warn,
       status,
       list,
       moreRow,
     ),
-    buttons: [
-      { label: 'Type an app id or link…', action: 'browse-by-id', onclick: () => { closed = true; m.close(); guarded(installFromRegistry)(st.registry || reg.value); } },
-      { label: 'Close', action: 'browse-close', onclick: () => { closed = true; m.close(); } },
-    ],
+    buttons: [{ label: 'Close', action: 'browse-close', onclick: () => { closed = true; m.close(); } }],
   });
   moreRow.hidden = true;
   if (st.loaded) render(); // reopened (after a cancelled review, say): what was shown, with no new request
-  else if (reg.value.trim()) run(false); // the user just opened the sheet: this is their request for the first page
-  else status.textContent = 'Enter the address of a registry, then press Search.';
-  (reg.value.trim() ? qIn : reg).focus();
+  else run(false); // the user just opened the sheet: this is their request for the first page, the newest apps
+  qIn.focus();
 }
 
 async function editPermissions(a) {
@@ -1996,7 +1941,6 @@ loader.onMenu((action) => {
 });
 document.getElementById('btn-run-folder').addEventListener('click', guarded(runFolder));
 document.getElementById('btn-browse-registry').addEventListener('click', guarded(openBrowse));
-document.getElementById('btn-install-registry').addEventListener('click', guarded(installFromRegistry));
 document.getElementById('btn-inspector').addEventListener('click', guarded(() => loader.inspect(null)));
 document.getElementById('btn-settings').addEventListener('click', guarded(() => loader.openSettings()));
 loader.onChanged(() => refresh());

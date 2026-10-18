@@ -54,3 +54,24 @@ test('a packaged loader ignores all of them: the GPU server and its profile are 
   assert.equal(cfg.kernel, path.join(bundle, 'Image'));
   for (const v of [cfg.gpuServer, cfg.gpuProfile, cfg.vmappVm, cfg.kernel, cfg.initramfs]) assert.ok(!v.includes('evil'), `${v} came from the environment`);
 });
+
+test('the registry is fixed: a packaged launcher uses the public one, a development launcher the one on this Mac, VMAPP_REGISTRY overrides either', () => {
+  const { PUBLIC_REGISTRY, DEFAULT_DEV_REGISTRY } = require('../../hostlib/updates');
+  assert.equal(PUBLIC_REGISTRY, 'https://api.vmapp.dev');
+  const saved = process.env.VMAPP_REGISTRY;
+  const hadRes = Object.prototype.hasOwnProperty.call(process, 'resourcesPath');
+  process.resourcesPath = '/Applications/D9010VmAppLauncher.app/Contents/Resources';
+  try {
+    delete process.env.VMAPP_REGISTRY;
+    assert.equal(resolveConfig(true).registry, PUBLIC_REGISTRY);
+    assert.equal(resolveConfig(false).registry, DEFAULT_DEV_REGISTRY);
+    process.env.VMAPP_REGISTRY = 'http://127.0.0.1:9999/';
+    assert.equal(resolveConfig(true).registry, 'http://127.0.0.1:9999');
+    process.env.VMAPP_REGISTRY = 'not an address';
+    assert.equal(resolveConfig(true).registry, PUBLIC_REGISTRY, 'an unusable value falls back to the public registry');
+  } finally {
+    if (saved === undefined) delete process.env.VMAPP_REGISTRY;
+    else process.env.VMAPP_REGISTRY = saved;
+    if (!hadRes) delete process.resourcesPath;
+  }
+});

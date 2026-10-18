@@ -103,7 +103,7 @@ The web page shows "Unverified publisher" until you verify. The dev server write
 `out/work/my-registry/outbox/*.eml`, and the page explains each level.
 
 To get an app from this registry into the loader without the terminal, choose **File → Browse registry…** (⇧⌘B; a development
-loader is already pointed at `http://127.0.0.1:8790`), search, and click **Install** on a card: you see the same review as for a
+loader is already pointed at `http://127.0.0.1:8790`; the newest apps come first), search, and click **Install** on a card: you see the same review as for a
 file before anything is installed ([USING.md](USING.md#browse-and-install-from-a-registry)).
 
 ## 4. A 10-minute demo for other people

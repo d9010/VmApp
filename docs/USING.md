@@ -34,14 +34,16 @@ So you can try an app from someone you don't know, and it still can't reach anyt
 
 ## Browse and install from a registry
 
-A registry is a website that lists apps ([DISTRIBUTING.md](DISTRIBUTING.md)). You can search one without leaving the loader:
+A registry is a website that lists apps ([DISTRIBUTING.md](DISTRIBUTING.md)). The launcher has one registry of its own
+(`https://api.vmapp.dev`, shown at the top of the sheet; it is not a setting), and you can search it without leaving the launcher.
+The other way to get an app is **Install from file…**.
 
-1. Click **Browse registry…** (or choose **File → Browse registry…**, ⇧⌘B). The **Registry** box holds the loader's default
-   address (`$VMAPP_REGISTRY` if it is set; otherwise a development loader uses `http://127.0.0.1:8790` and a loader that came
-   as an app has none, so type the address of the registry you want). Change it and press Return to look at another registry.
-2. The most downloaded apps appear. Type in the search box (it looks at an app's name, description and id, and at the
-   publisher facts the registry has verified) and press **Search**. The **sort** menu offers *Most downloaded*, *Newest*,
-   *Recently updated* and *Name (A to Z)*. **Show more** continues the list.
+1. Click **Browse registry…** (or choose **File → Browse registry…**, ⇧⌘B). A development launcher (`npm start`) uses the registry
+   on this Mac, `http://127.0.0.1:8790`; `$VMAPP_REGISTRY`, if it is set in the environment that starts the launcher, points either
+   kind at another registry (for tests, or for a registry you run yourself).
+2. The **newest apps** appear first. Type in the search box (it looks at an app's name, description and id, and at the
+   publisher facts the registry has verified) and press **Search**. **Sort by** offers *Newest* (the default), *Most
+   downloaded*, *Recently updated* and *Name (A to Z)*. **Show more** continues the list.
 3. Each card shows the app's name and id, the **publisher label exactly as the registry gives it** ("Unverified publisher",
    "Verified email @example.com", "Verified: example.com"), a description, its version, size, download count and the registry's
    summary of what it asks for. All of that is what the registry says; the loader shows it as given and **cannot check it**, so
@@ -54,11 +56,10 @@ A registry is a website that lists apps ([DISTRIBUTING.md](DISTRIBUTING.md)). Yo
 5. An app you already have shows **Installed 1.0.0** instead of an Install button (if the registry lists another version it says
    so; update through the app's own card, see [Versions and updates](#versions-and-updates)).
 
-If you know an app's id or the address of its page, **Type an app id or link…** (in the sheet) or **Install from registry…**
-(in the library) goes straight to it.
+To install one app you already know, search for its name or id: it is then the only card.
 
 **When the loader goes online.** Only when you open Browse, press **Search**, change the sort or press **Show more**: one
-request to the registry you named, carrying the search text, the sort and the page, nothing else (no list of your apps, no
+request to the launcher's registry, carrying the search text, the sort and the page, nothing else (no list of your apps, no
 identifier). Nothing is requested when the loader starts or while the sheet is closed, and reopening the sheet shows what it had
 without asking again. The sheet's own page has no network; the loader does the asking and cuts the answer down to plain text and
 numbers. A registry address that starts with `http://` (not `https://`) and is not on this Mac gets a warning: what you see and
@@ -364,8 +365,7 @@ A launcher you built yourself (or one that is not signed with the maintainers' D
 
 ## Versions and updates
 
-Apps you install from a registry (**Browse registry…**, or **Install from registry…**: type the registry's address and the
-app's id, or paste the app's page address) remember where they came from. Apps you install from a file don't, and show "installed from a
+Apps you install from a registry (**Browse registry…**) remember where they came from. Apps you install from a file don't, and show "installed from a
 file".
 
 Each registry app has an **Updates** choice on its card:

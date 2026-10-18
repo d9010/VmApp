@@ -137,8 +137,8 @@ reports launches or usage, so nothing about how people use your app is known to 
 
 - **From a website or a friend:** download the `.vmapp` file, open the D9010 VmApp Launcher, choose *Install from file…*, pick it. The
   Loader shows the app's name and the **permissions it asks for** before it installs.
-- **From a registry, in the Loader:** *Browse registry…* (⇧⌘B) searches the registry and lists its apps; *Install* on
-  one shows the usual review and permission sheet before anything is installed.
+- **From the registry, in the Loader:** *Browse registry…* (⇧⌘B) lists the launcher's registry, newest apps first, with a search box and a
+  choice of order; *Install* on one shows the usual review and permission sheet before anything is installed.
 - **From a registry's website:** browse it (Popular, New, Updated, or search), open the app page, read *This app will
   ask for:*, and press *Download*. Or from a terminal:
 

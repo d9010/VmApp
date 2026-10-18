@@ -686,9 +686,12 @@ Separately, and for any installed app, the loader's *Publish…* sheet makes one
 user presses **Publish** (the owner token is sent only if the user has one). That is a `GET /api/info`, then either one
 `POST /api/publish` or the presigned form (`init`, a `PUT` to the storage address the registry named, `complete`).
 
-The loader's *Browse registry…* sheet makes one `GET /api/apps` to the registry the user typed or configured each time the
-user opens it with a registry set, searches, changes the sort or presses **Show more**. The request carries only the search text,
-the sort and the page (`q`, `sort`, `limit`, `offset`): never the installed apps. Its answer is display data only;
+The loader's *Browse registry…* sheet makes one `GET /api/apps` to the loader's own registry each time the user opens it,
+searches, changes the sort or presses **Show more**. That registry is fixed by the loader's configuration (the public registry
+for a packaged loader, a local one for a development loader, or `$VMAPP_REGISTRY` in the environment that started it); no window
+of the loader can name another, and there is no second dialog that asks for a registry address. The first page is the newest apps
+(`sort=new`); the user can search and choose another order (`popular`, `updated`, `name`). The request carries only the search
+text, the sort and the page (`q`, `sort`, `limit`, `offset`): never the installed apps. Its answer is display data only;
 **Install** on a result goes through the same download and verification as any registry install.
 
 This is user-chosen network use (INV-G3). It has a 5 s timeout; if the registry is offline, the app launches the

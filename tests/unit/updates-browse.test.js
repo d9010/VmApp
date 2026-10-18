@@ -92,10 +92,10 @@ const item = (over = {}) => Object.assign({ id: 'com.example.ok', name: 'Ok', pu
 // ------------------------------------------------------------------------------------------------ what a request asks for
 
 test('browseParams: defaults, clamps, a cleaned search text; a text or sort the registry would refuse is refused here', () => {
-  assert.deepEqual(browseParams({}), { q: '', sort: 'popular', offset: 0, limit: 20 });
-  assert.deepEqual(browseParams(), { q: '', sort: 'popular', offset: 0, limit: 20 });
-  assert.deepEqual(browseParams({ q: `  hello \t\n world${NUL}${RLO} `, sort: 'new', offset: 40, limit: 999 }),{ q: 'hello world', sort: 'new', offset: 40, limit: 50 });
-  assert.deepEqual(BROWSE_SORTS, ['popular', 'new', 'updated', 'name']);
+  assert.deepEqual(browseParams({}), { q: '', sort: 'new', offset: 0, limit: 20 }, 'the default is the newest apps first');
+  assert.deepEqual(browseParams(), { q: '', sort: 'new', offset: 0, limit: 20 });
+  assert.deepEqual(browseParams({ q: `  hello \t\n world${NUL}${RLO} `, sort: 'popular', offset: 40, limit: 999 }),{ q: 'hello world', sort: 'popular', offset: 40, limit: 50 });
+  assert.deepEqual(BROWSE_SORTS, ['new', 'popular', 'updated', 'name']);
   for (const s of BROWSE_SORTS) assert.equal(browseParams({ sort: s }).sort, s);
   for (const bad of [-1, 1.5, NaN, '5', null, Infinity, 1e300]) assert.equal(browseParams({ offset: bad }).offset, 0, `offset ${bad}`);
   assert.equal(browseParams({ offset: 5e9 }).offset, 1000000, 'an offset is capped');
@@ -103,7 +103,7 @@ test('browseParams: defaults, clamps, a cleaned search text; a text or sort the 
   assert.equal(browseParams({ limit: 3 }).limit, 3);
   assert.equal(browseParams({ q: 'x'.repeat(100) }).q.length, 100);
   assert.throws(() => browseParams({ q: 'x'.repeat(101) }), (e) => e instanceof UpdateError && /at most 100 characters/.test(e.message));
-  assert.equal(browseParams({ sort: '' }).sort, 'popular', 'an empty sort means the default');
+  assert.equal(browseParams({ sort: '' }).sort, 'new', 'an empty sort means the default');
   for (const bad of ['popularity', 'POPULAR', '../x', 7, {}, []]) {
     assert.throws(() => browseParams({ sort: bad }), (e) => e instanceof UpdateError && /sort order/.test(e.message), `sort ${JSON.stringify(bad)}`);
   }
@@ -139,7 +139,7 @@ test('a real registry: results come back as plain, cut-down data with the publis
   assert.equal(res.registry, r.url);
   assert.equal(res.total, 4);
   assert.equal(res.next, null);
-  assert.equal(res.sort, 'popular');
+  assert.equal(res.sort, 'new');
   assert.equal(res.items.length, 4);
   for (const it of res.items) {
     assert.deepEqual(Object.keys(it).sort(), ITEM_KEYS, 'only the fixed fields survive');
@@ -256,7 +256,7 @@ test('cleanBrowseList: a registry cannot make the page longer than asked, and "n
   const raw = [item({ id: 'com.example.a' }), { id: 'bad' }, item({ id: 'com.example.c' }), item({ id: 'com.example.d' }), item({ id: 'com.example.e' })];
   const r = cleanBrowseList({ total: 100, items: raw, offset: 999, sort: 'name', q: 'ignored' }, 'http://r.example', ask);
   assert.deepEqual(r.items.map((x) => x.id), ['com.example.a', 'com.example.c'], 'cut to the 3 asked for, the malformed one dropped');
-  assert.deepEqual([r.offset, r.limit, r.sort, r.q, r.total, r.next], [6, 3, 'popular', '', 100, 9], 'the answer’s own echo is ignored');
+  assert.deepEqual([r.offset, r.limit, r.sort, r.q, r.total, r.next], [6, 3, 'new', '', 100, 9], 'the answer’s own echo is ignored');
   assert.equal(cleanBrowseList({ total: 4, items: raw.slice(0, 3) }, 'http://r.example', browseParams({ limit: 3, offset: 1 })).next, null, 'the end');
   assert.equal(cleanBrowseList({ total: 50, items: [] }, 'http://r.example', browseParams({})).next, null, 'an empty page never says there is more');
   for (const bad of [null, [], 'items', { items: 'x' }, { items: { 0: 1 } }, { total: 1 }]) {
@@ -395,30 +395,32 @@ function newLibrary(t, { updates, registryDefault = '' } = {}) {
   return { lib, ipc, handlers, store };
 }
 
-test('lib:registryBrowse: only the library window may ask; the registry is normalized; results come back; installing a card is the verified install path', async (t) => {
+test('lib:registryBrowse: only the library window may ask; the launcher’s registry is used (normalized); results come back; installing a card is the verified install path', async (t) => {
   const r = await startFixtureRegistry(t);
-  const { lib, ipc, handlers, store } = newLibrary(t);
+  const { lib, ipc, handlers, store } = newLibrary(t, { registryDefault: `  ${r.url}/  ` });
   // another loader window is refused
-  const denied = await handlers['lib:registryBrowse']({ sender: { id: 2, mainFrame: 'f' }, senderFrame: 'f' }, r.url, {});
+  const denied = await handlers['lib:registryBrowse']({ sender: { id: 2, mainFrame: 'f' }, senderFrame: 'f' }, {});
   assert.deepEqual(denied, { ok: false, error: 'denied' });
-  const frame = await handlers['lib:registryBrowse']({ sender: { id: 1, mainFrame: 'f' }, senderFrame: 'other' }, r.url, {});
+  const frame = await handlers['lib:registryBrowse']({ sender: { id: 1, mainFrame: 'f' }, senderFrame: 'other' }, {});
   assert.deepEqual(frame, { ok: false, error: 'denied' });
 
-  const out = await ipc('lib:registryBrowse', `  ${r.url}/  `, { q: 'notes', sort: 'name', offset: 0 });
+  const out = await ipc('lib:registryBrowse', { q: 'notes', sort: 'name', offset: 0 });
   assert.equal(out.ok, true, out.error);
   const res = out.result;
   assert.deepEqual(Object.keys(res).sort(), ['insecure', 'items', 'next', 'offset', 'q', 'registry', 'sort', 'total']);
   assert.deepEqual([res.registry, res.insecure, res.q, res.sort, res.offset, res.total, res.next], [r.url, false, 'notes', 'name', 0, 1, null]);
   assert.deepEqual(res.items.map((x) => [x.id, x.name, x.latestVersion]), [['com.example.notes', 'Notes', '1.0.0']]);
 
-  // a hostile page cannot make the main process do anything else: odd options are ignored or refused
-  const odd = await ipc('lib:registryBrowse', r.url, { q: 'a', sort: 'popular', offset: 'x', registry: 'http://evil.example', limit: 1000000, deadlineMs: 1e9 });
+  // a hostile page cannot make the main process do anything else: it cannot name another registry, and odd options are ignored or refused
+  const odd = await ipc('lib:registryBrowse', { q: 'a', sort: 'popular', offset: 'x', registry: 'http://evil.example', limit: 1000000, deadlineMs: 1e9 });
   assert.equal(odd.ok, true);
   assert.equal(odd.result.registry, r.url);
   assert.equal(odd.result.limit, undefined);
-  assert.equal((await ipc('lib:registryBrowse', r.url, { sort: 'drop table' })).ok, false);
-  assert.equal((await ipc('lib:registryBrowse', r.url, { q: 'x'.repeat(500) })).error, 'The search text can have at most 100 characters.');
-  assert.equal((await ipc('lib:registryBrowse', r.url, null)).ok, true, 'no options is fine');
+  assert.equal((await ipc('lib:registryBrowse', 'http://evil.example', {})).result.registry, r.url, 'an address passed instead of the options is not used either');
+  assert.equal((await ipc('lib:registryBrowse', { sort: 'drop table' })).ok, false);
+  assert.equal((await ipc('lib:registryBrowse', { q: 'x'.repeat(500) })).error, 'The search text can have at most 100 characters.');
+  assert.equal((await ipc('lib:registryBrowse', null)).ok, true, 'no options is fine: the newest apps');
+  assert.equal((await ipc('lib:registryBrowse', null)).result.sort, 'new');
 
   // install from a card = lib:registryFetch with the id from the list and the registry of the list: the same review as ever
   const fetched = await ipc('lib:registryFetch', res.registry, res.items[0].id);
@@ -431,24 +433,23 @@ test('lib:registryBrowse: only the library window may ask; the registry is norma
   assert.equal(lib.installs.size, 0);
 });
 
-test('lib:registryBrowse: bad or missing registry addresses say what to do; an unreachable registry says so', async (t) => {
-  const { ipc } = newLibrary(t);
+test('lib:registryBrowse: no or a bad launcher registry says so; an unreachable registry says so', async (t) => {
   for (const bad of ['', 'nonsense', 'ftp://x.example', 'localhost:8790']) {
-    const r = await ipc('lib:registryBrowse', bad, {});
-    assert.deepEqual(r, { ok: false, error: 'Enter the registry address (an http or https address).' }, JSON.stringify(bad));
+    const { ipc } = newLibrary(t, { registryDefault: bad });
+    const r = await ipc('lib:registryBrowse', {});
+    assert.deepEqual(r, { ok: false, error: 'This launcher has no registry to browse.' }, JSON.stringify(bad));
   }
-  assert.equal((await ipc('lib:registryBrowse', undefined, {})).ok, false);
   const gone = await deadUrl();
-  const dead = await ipc('lib:registryBrowse', gone, {});
+  const { ipc } = newLibrary(t, { registryDefault: gone });
+  const dead = await ipc('lib:registryBrowse', {});
   assert.equal(dead.ok, false);
   assert.ok(dead.error.startsWith(`Cannot reach the registry at ${gone} (`), dead.error);
 });
 
 test('lib:registryBrowse: plain http to another computer is marked insecure (loopback and https are not)', async (t) => {
   const asked = [];
-  const stub = { browseRegistry: async (registry, o) => { asked.push([registry, o]); return { registry, q: '', sort: 'popular', offset: 0, limit: 20, total: 0, next: null, items: [] }; } };
-  const { ipc } = newLibrary(t, { updates: stub });
-  const flag = async (u) => (await ipc('lib:registryBrowse', u, {})).result.insecure;
+  const stub = { browseRegistry: async (registry, o) => { asked.push([registry, o]); return { registry, q: '', sort: 'new', offset: 0, limit: 20, total: 0, next: null, items: [] }; } };
+  const flag = async (u) => (await newLibrary(t, { updates: stub, registryDefault: u }).ipc('lib:registryBrowse', {})).result.insecure;
   assert.equal(await flag('http://registry.example.org'), true);
   assert.equal(await flag('http://192.168.1.20:8790'), true);
   assert.equal(await flag('https://registry.example.org'), false);
@@ -470,7 +471,7 @@ test('nothing asks any registry by itself: building the library and answering it
   await new Promise((res) => setTimeout(res, 50));
   assert.deepEqual(calls.filter((c) => c[1].startsWith(r.url)), [], 'no request to the registry before the user asks');
   assert.equal((await ipc('lib:registryDefault')).result.registry, r.url, 'the default is only a value the page may show');
-  const out = await ipc('lib:registryBrowse', r.url, {});
+  const out = await ipc('lib:registryBrowse', {});
   assert.equal(out.ok, true);
   assert.equal(calls.filter((c) => c[1].startsWith(r.url)).length, 1, 'exactly one request for one browse');
   assert.ok(calls[0][1].startsWith(`${r.url}/api/apps?`));
@@ -490,6 +491,7 @@ test('the library page inserts registry text as text only: no HTML strings, no e
 test('the library page is the only place that may use browsing: the preload exposes it to library.html and nowhere else', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'loader', 'preload-loader.js'), 'utf8');
   const lib = src.slice(src.indexOf("if (page === 'library.html')"), src.indexOf("} else if (page === 'settings.html')"));
-  assert.match(lib, /registryBrowse: \(registry, opts\) => call\('lib:registryBrowse'/);
+  assert.match(lib, /registryBrowse: \(opts\) => call\('lib:registryBrowse'/);
+  assert.doesNotMatch(lib, /registryBrowse: \(registry/, 'the page cannot name the registry it browses');
   assert.equal(src.split('lib:registryBrowse').length - 1, 1, 'named once in the whole preload');
 });
