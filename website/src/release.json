@@ -1,17 +1,17 @@
 {
-  "version": "0.1.1",
-  "tag": "v0.1.1",
-  "commit": "17d099957edfd14fc9035bdff7d41f64a963cbf5",
+  "version": "0.1.2",
+  "tag": "v0.1.2",
+  "commit": "7a01d059f757a47340a077f057234fce2247e158",
   "date": "2026-10-18",
-  "file": "D9010-VmApp-Launcher-0.1.1-mac-arm64.zip",
-  "size": 548842574,
-  "sha256": "4da221da55fc6c5b83e56fb71c33dc4b8d98f324c005722cd1f35db1b8ce2b9c",
-  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.1/D9010-VmApp-Launcher-0.1.1-mac-arm64.zip",
-  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.1",
-  "notes": "Fixes the launcher quitting as soon as it was opened. Version 0.1.0 does not start; please use this version instead.",
+  "file": "D9010-VmApp-Launcher-0.1.2-mac-arm64.zip",
+  "size": 548842240,
+  "sha256": "bfd15e1b848473660d5164a67d3d5b920599bba79dbe59a368fe95ee2f19e28a",
+  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.2/D9010-VmApp-Launcher-0.1.2-mac-arm64.zip",
+  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.2",
+  "notes": "The launcher now uses one app registry, ours, and shows the newest apps first.",
   "changes": [
-    "The launcher no longer quits right after you open it on a Mac: version 0.1.0 could not find its own helper programs and stopped at start.",
-    "Downloading and unzipping the launcher no longer leaves stray ._ files inside it, which made macOS refuse to open it."
+    "Browse registry… always lists the D9010 VmApp registry, newest apps first.",
+    "There is no longer a registry address to type: Install from registry… and Type an app id or link… are gone."
   ],
   "minimumOS": "13.0"
 }
