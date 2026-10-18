@@ -109,6 +109,9 @@ and its core a cpio). Any macOS program in there that is not signed with your De
 packages hold Linux programs, which Apple ignores, so the build must not leave macOS or Windows files in them: `apps/terminal/build.sh` deletes the
 `prebuilds/darwin-*` and `prebuilds/win32-*` folders that the Gemini CLI's dependencies bring. Which examples a release carries is chosen with
 `tools/pack-examples --without NAME`.
+**Keep `CFBundleName` equal to the packager's `name` (`D9010VmAppLauncher`).** Electron finds its helper programs as `<CFBundleName> Helper.app`; with the spaced
+display name in `CFBundleName` the app quits at start with "Unable to find helper app". Only `CFBundleDisplayName` has spaces, and `loader/build/package.mjs`
+checks that the helpers exist.
 Developer ID builds use `entitlements.mac.plist`, which is *without* `disable-library-validation`. That entitlement
 exists only so ad-hoc local builds can load Electron's framework.
 
@@ -192,8 +195,9 @@ version cannot test the update itself: that needs two signed releases (see secti
    node publish.js --release               # the release
    ```
 
-What `--release` checks before it makes anything: the zip is named for the version of `loader/package.json`, is signed with a Developer ID (not
-ad hoc), is accepted by macOS's Gatekeeper as a notarized build, has the stapled ticket, and its app reports that version; `CHANGELOG.md` has a
+What `--release` checks before it makes anything: the zip is named for the version of `loader/package.json`, has no `._` entries, is signed with a Developer
+ID (not ad hoc), is accepted by macOS's Gatekeeper as a notarized build, has the stapled ticket, its app reports that version, and **the app starts**: it is
+launched for 8 seconds in a throwaway data folder and must still be running (a signed, notarized build can still crash at start; 0.1.0 did); `CHANGELOG.md` has a
 dated, non-empty entry for the version; the public checkout is clean, at `origin/main`, at the same version and carries the changelog; the tag and
 the GitHub release do not exist yet; the update feed would pass the launcher's own validation.
 

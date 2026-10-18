@@ -191,6 +191,28 @@ async function sha256File(file) {
 
 // ---- the checks ---------------------------------------------------------------------------------------------------------------------
 
+/**
+ * Starts the unpacked app for a few seconds in a throwaway data folder (VMAPP_HOME) and fails if it dies. A build can be signed, notarized
+ * and accepted by Gatekeeper and still crash at start (0.1.0's first build: "Unable to find helper app"); only running it shows that.
+ */
+async function smokeTest(app, ms = 8000) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vmapp-release-home-'));
+  try {
+    const child = spawn(path.join(app, 'Contents', 'MacOS', 'D9010VmAppLauncher'), [], { env: { ...process.env, VMAPP_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    const died = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
+    const early = await Promise.race([died, new Promise((r) => setTimeout(() => r(null), ms))]);
+    if (early) fail(`The app quit by itself within ${ms / 1000} seconds (exit ${early.code === null ? early.signal : early.code}):\n${out.trim().split('\n').slice(-8).join('\n')}`);
+    child.kill('SIGTERM');
+    await Promise.race([died, new Promise((r) => setTimeout(r, 5000))]);
+    child.kill('SIGKILL');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 /** Unzips the build into its own new folder and proves it is what a user's Mac will accept. Returns what it found. */
 async function verifyZip(zip, version) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vmapp-release-check-'));
@@ -213,6 +235,7 @@ async function verifyZip(zip, version) {
     if (gate.code !== 0 || !/source=Notarized Developer ID/.test(gate.out)) fail(`macOS would not open this build without a warning:\n${gate.out}\nRun the notarization step (docs/PRODUCTION.md).`);
     const staple = await sh('xcrun', ['stapler', 'validate', app]);
     if (staple.code !== 0) fail(`The ticket is not attached to the app (offline Macs would warn):\n${staple.out}`);
+    await smokeTest(app);
     return { team: (/TeamIdentifier=(\S+)/.exec(info) || [])[1] || '' };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -129,10 +129,18 @@ const appPaths = await packager({
 if (appPaths.length !== 1) throw new Error(`expected one app, got ${appPaths.length}`);
 const built = path.join(appPaths[0], 'D9010VmAppLauncher.app');
 fs.renameSync(built, APP);
-// The name people see (Dock, menu bar, About) has spaces; the bundle and executable file names do not. The packager sets both names from
-// `name` after it merges extendInfo, so they are set here, in the finished plist, before signing.
-for (const key of ['CFBundleName', 'CFBundleDisplayName']) {
-  execFileSync('/usr/bin/plutil', ['-replace', key, '-string', 'D9010 VmApp Launcher', path.join(APP, 'Contents', 'Info.plist')]);
+// The name people see (Finder, Dock, About) has spaces; the bundle and executable file names do not. Only CFBundleDisplayName is changed: Electron
+// finds its helper programs as "<CFBundleName> Helper.app" (Contents/Frameworks), so CFBundleName must stay equal to the packager's `name`
+// (D9010VmAppLauncher) or the app dies at start with "Unable to find helper app". The menu bar and About use the app's productName
+// ("D9010 VmApp Launcher", in the packaged package.json), so they show the spaced name anyway.
+execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleDisplayName', '-string', 'D9010 VmApp Launcher', path.join(APP, 'Contents', 'Info.plist')]);
+// A test cannot run the packaged app without a Mac, so the packager checks the one thing that broke: every helper app Electron looks for exists.
+{
+  const bundleName = execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleName', 'raw', '-o', '-', path.join(APP, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim();
+  for (const suffix of ['', ' (GPU)', ' (Renderer)', ' (Plugin)']) {
+    const helper = path.join(APP, 'Contents', 'Frameworks', `${bundleName} Helper${suffix}.app`);
+    if (!fs.existsSync(helper)) throw new Error(`Electron would not find its helper: ${helper} does not exist (CFBundleName is "${bundleName}")`);
+  }
 }
 removeBelowDist(PKGOUT);
 removeBelowDist(STAGE);

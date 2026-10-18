@@ -3,6 +3,15 @@
 What changed in each version of the D9010 VmApp Launcher, newest first. The launcher shows the latest entry on its update card, the
 website's download page links here, and each GitHub release carries the same text.
 
+## [0.1.1] - 2026-10-18
+
+Fixes the launcher quitting as soon as it was opened. Version 0.1.0 does not start; please use this version instead.
+
+### Fixed
+
+- The launcher no longer quits right after you open it on a Mac: version 0.1.0 could not find its own helper programs and stopped at start.
+- Downloading and unzipping the launcher no longer leaves stray `._` files inside it, which made macOS refuse to open it.
+
 ## [0.1.0] - 2026-10-18
 
 The first public release, for macOS 13 or later on Apple silicon.
