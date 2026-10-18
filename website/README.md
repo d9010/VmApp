@@ -70,7 +70,7 @@ node publish.js --release               # tag, GitHub release, Download page, ch
 ```
 
 This is the whole release (`release.js`): it needs the signed and notarized zip, a dated entry for the version in `CHANGELOG.md`, and the public
-checkout (`VMAPP_EXPORT_REPO` or `.release.local.json`, git-ignored: `{"exportRepo": "<folder>"}`) clean and pushed. It writes `src/release.json`, from
+checkout (found at `<workspace>/public/github`, or named by `VMAPP_EXPORT_REPO` or the git-ignored `.release.local.json`: `{"exportRepo": "<folder>"}`) clean and pushed. It writes `src/release.json`, from
 which `build.js` makes the Download page, the home page's button and `dist/updates/mac-arm64/latest.json`, the feed installed launchers ask. The
 full procedure and what is checked: [../docs/PRODUCTION.md](../docs/PRODUCTION.md) section 6. Until `src/release.json` exists the Download page says
 that the first release is being prepared and no feed is published.

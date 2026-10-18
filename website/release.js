@@ -244,6 +244,11 @@ function ownerRepo(repoUrl) {
   return m[1];
 }
 
+/**
+ * Where the public repository (github.com/d9010/VmApp) is checked out: the release tags that checkout, never this source tree.
+ * VMAPP_EXPORT_REPO, then "exportRepo" in website/.release.local.json (git-ignored), else the workspace's fixed place:
+ * <workspace>/public/github, next to this source folder (<workspace>/vmapp). See the workspace's CLAUDE.md.
+ */
 function localConfig(root) {
   const file = path.join(root, '.release.local.json');
   let j = {};
@@ -252,8 +257,9 @@ function localConfig(root) {
   } catch {
     /* none */
   }
-  const repo = process.env.VMAPP_EXPORT_REPO || j.exportRepo;
-  if (!repo) fail('Where is the public repository checked out? Set VMAPP_EXPORT_REPO, or put {"exportRepo": "<folder>"} in website/.release.local.json (a git-ignored file).');
+  const standard = path.resolve(root, '..', '..', 'public', 'github');
+  const repo = process.env.VMAPP_EXPORT_REPO || j.exportRepo || (fs.existsSync(path.join(standard, '.git')) ? standard : '');
+  if (!repo) fail(`Where is the public repository checked out? It is not at ${standard}. Set VMAPP_EXPORT_REPO, or put {"exportRepo": "<folder>"} in website/.release.local.json (a git-ignored file).`);
   return { exportRepo: path.resolve(repo) };
 }
 

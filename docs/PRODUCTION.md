@@ -177,8 +177,9 @@ version cannot test the update itself: that needs two signed releases (see secti
    `bash tools/notarize-mac <profile>`. The result is `out/dist/D9010-VmApp-Launcher-<version>-mac-arm64.zip`.
 3. **Publish the source**: refresh the public export (`tools/export-github --out <public checkout> --refresh`), commit and push it so that GitHub is at
    the commit the build was made from. The release tags that commit.
-4. **Tell the script where the public checkout is** (once): `export VMAPP_EXPORT_REPO=<public checkout>`, or put `{"exportRepo": "<path>"}` in
-   `website/.release.local.json` (git-ignored).
+4. **The public checkout** is found by itself when it is in the maintainer's workspace at `<workspace>/public/github`, next to the source folder `vmapp/`
+   (the workspace's `CLAUDE.md` is the map of the folders). Anywhere else, set `VMAPP_EXPORT_REPO=<public checkout>` or put
+   `{"exportRepo": "<path>"}` in `website/.release.local.json` (git-ignored).
 5. **Check, then release**:
    ```sh
    cd website
