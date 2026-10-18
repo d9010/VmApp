@@ -8,7 +8,7 @@ const { VMAPP, check, edit, write, remove, messages, cleanup } = require('./help
 
 after(cleanup);
 
-const RULES = ['b1-window-prefs', 'b2-preload-api', 'b3-csp-nav-perms', 'b4-ui-handler', 'c2-request-ops', 'a1-no-code-exec', 'g3-no-network', 'deps-none', 'd1-no-vm-network', 'd4-guest-privileges', 'e2-no-panics', 'f2-pinned-bases', 'n1-no-guest-egress', 'n3-address-check', 'h7-gpu-service', 'h8-krun-sandbox'];
+const RULES = ['b1-window-prefs', 'b2-preload-api', 'b3-csp-nav-perms', 'b4-ui-handler', 'c2-request-ops', 'a1-no-code-exec', 'g3-no-network', 'u1-launcher-updates', 'deps-none', 'd1-no-vm-network', 'd4-guest-privileges', 'e2-no-panics', 'f2-pinned-bases', 'n1-no-guest-egress', 'n3-address-check', 'h7-gpu-service', 'h8-krun-sandbox'];
 
 test('the good fixture passes every rule', () => {
   const { results, byId } = check();
@@ -260,6 +260,71 @@ test('A1: eval inside a string or a comment is not a violation', () => {
 violates('G3: fetch in the loader is a warning', 'g3-no-network', (r) => write(r, 'loader/src/x.js', "module.exports = () => fetch('https://example.com/update');\n"), { status: 'WARN', match: /fetch|URL/ });
 violates('G3: electron net.request is a warning', 'g3-no-network', (r) => write(r, 'loader/src/x.js', "const { net } = require('electron');\nmodule.exports = () => net.request('x');\n"), { status: 'WARN', match: /net/ });
 violates('G3: require https is a warning', 'g3-no-network', (r) => write(r, 'loader/src/x.js', "module.exports = require('https');\n"), { status: 'WARN', match: /https/ });
+
+// ------------------------------------------------------------------------------------------------ U1
+// A conforming launcher updater (loader/src/updater.js, SPEC 8.10) and its wiring in main.js, then one mutation per guarantee.
+const UPD = 'loader/src/updater.js';
+const UPD_GOOD = `'use strict';
+const { fetchLauncherFeed } = require('../../hostlib/updates');
+const PAGE = 'https://vmapp.dev/download';
+class LauncherUpdater {
+  constructor(o) {
+    this.autoUpdater = o.autoUpdater;
+    this.feedUrl = o.feedUrl;
+  }
+
+  start() {
+    this.timer = setTimeout(() => this.check({ manual: false }), 1000);
+  }
+
+  async check({ manual = false } = {}) {
+    this.feed = await fetchLauncherFeed(this.feedUrl);
+    return manual;
+  }
+
+  install() {
+    this.autoUpdater.setFeedURL({ url: this.feedUrl, serverType: 'json' });
+    this.autoUpdater.checkForUpdates();
+  }
+
+  async restart(prepare) {
+    await prepare();
+    this.autoUpdater.quitAndInstall();
+  }
+}
+module.exports = { LauncherUpdater, PAGE };
+`;
+const UPD_WIRING = `
+const updateHandle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) => {
+  if (senders.get(event.sender.id) !== 'library' || event.senderFrame !== event.sender.mainFrame) throw new Error('denied');
+  return fn(...args);
+});
+updateHandle('upd:install', () => updater.install());
+updateHandle('upd:restart', () => updater.restart(async () => true));
+`;
+const UPD_UI = "const api = window.loader.update;\nbutton.addEventListener('click', () => api.install());\nh('button', { onclick: () => api.restart() });\n";
+const withUpdater = (r) => {
+  write(r, UPD, UPD_GOOD);
+  edit(r, 'loader/main.js', /$/, UPD_WIRING);
+  write(r, 'loader/ui/update.js', UPD_UI.replace("button.addEventListener('click', () => api.install());", "h('button', { onclick: () => api.install() });"));
+};
+test('U1: a conforming updater with its wiring and page passes, and G3 raises nothing for it', () => {
+  const { byId } = check(withUpdater);
+  assert.equal(byId['u1-launcher-updates'].status, 'PASS', messages(byId['u1-launcher-updates']));
+  assert.equal(byId['g3-no-network'].status, 'PASS', messages(byId['g3-no-network']));
+});
+violates('U1: Electron’s updater anywhere else in loader/ fails (and G3 warns)', 'u1-launcher-updates', (r) => { withUpdater(r); write(r, 'loader/src/x.js', "const { autoUpdater } = require('electron');\nmodule.exports = () => autoUpdater;\n"); }, { match: /autoUpdater outside loader\/src\/updater\.js/, alsoFails: [] });
+violates('U1: quitAndInstall outside the updater fails', 'u1-launcher-updates', (r) => { withUpdater(r); write(r, 'loader/src/x.js', 'module.exports = (u) => u.quitAndInstall();\n'); }, { match: /quitAndInstall\( outside/ });
+violates('U1: fetchLauncherFeed called from another hostlib file fails', 'u1-launcher-updates', (r) => { withUpdater(r); write(r, 'hostlib/x.js', "module.exports = (u) => u.fetchLauncherFeed('x');\n"); }, { match: /fetchLauncherFeed outside hostlib\/updates\.js/ });
+violates('U1: quitAndInstall in start() (an automatic restart) fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, UPD, 'this.timer = setTimeout(() => this.check({ manual: false }), 1000);', 'this.autoUpdater.quitAndInstall();'); }, { match: /quitAndInstall must be called only in restart\(\)|exactly once/ });
+violates('U1: the automatic check installing by itself fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, UPD, 'this.feed = await fetchLauncherFeed(this.feedUrl);', 'this.feed = await fetchLauncherFeed(this.feedUrl);\n    this.install();'); }, { match: /check\(\) \(the automatic path\) must never install or restart/ });
+violates('U1: a second checkForUpdates() call fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, UPD, 'this.feed = await fetchLauncherFeed(this.feedUrl);', 'this.feed = await fetchLauncherFeed(this.feedUrl);\n    this.autoUpdater.checkForUpdates();'); }, { match: /checkForUpdates\(\) must be called exactly once/ });
+violates('U1: a feed address built from other parts fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, UPD, "{ url: this.feedUrl, serverType: 'json' }", "{ url: this.feedUrl + '?v=1', serverType: 'json' }"); }, { match: /setFeedURL must be called with/ });
+violates('U1: another address named in the updater fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, UPD, "const PAGE = 'https://vmapp.dev/download';", "const PAGE = 'https://example.com/download';"); }, { match: /only pages on https:\/\/vmapp\.dev\/ may be named here/ });
+violates('U1: updater.install() outside the handlers in main.js fails', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, 'loader/main.js', /$/, '\nsetTimeout(() => updater.install(), 10);\n'); }, { match: /only through the upd:install and upd:restart handlers/ });
+violates('U1: update handlers that do not check the sender fail', 'u1-launcher-updates', (r) => { withUpdater(r); edit(r, 'loader/main.js', "senders.get(event.sender.id) !== 'library' || ", ''); }, { match: /refuse every sender but the library window/ });
+violates('U1: the page calling install outside a click fails', 'u1-launcher-updates', (r) => { withUpdater(r); write(r, 'loader/ui/update.js', 'const api = window.loader.update;\napi.install();\n'); }, { match: /only from a click handler/ });
+violates('G3: autoUpdater outside the updater is still a warning', 'g3-no-network', (r) => { withUpdater(r); write(r, 'loader/src/x.js', "const { autoUpdater } = require('electron');\nmodule.exports = autoUpdater;\n"); }, { status: 'WARN', match: /autoUpdater/, alsoFails: ['u1-launcher-updates'] });
 
 // ------------------------------------------------------------------------------------------------ dependencies
 violates('deps: loader/package.json has dependencies', 'deps-none', (r) => edit(r, 'loader/package.json', '"devDependencies"', '"dependencies": { "left-pad": "1.3.0" },\n  "devDependencies"'), { match: /dependencies/ });

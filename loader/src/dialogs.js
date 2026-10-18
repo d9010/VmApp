@@ -212,6 +212,24 @@ class NativeDialogs {
     return true;
   }
 
+  /**
+   * Opens a page about the launcher's own update ("What's new", "Download") in the browser, after asking. The address is one the
+   * update logic validated (src/updater.js pageFor: an https address on vmapp.dev). Returns true if opened.
+   */
+  async openLauncherPage(parent, url) {
+    const message = `Open ${url} in your browser?`;
+    if (this.hook) {
+      const answer = !!this.hook.external;
+      this._note('open-page', { url, message, answer });
+      if (answer) this._note('openExternal', url); // never launch a browser from tests
+      return answer;
+    }
+    const r = await this.message(parent, { type: 'question', title: 'Open the D9010 VmApp website', message, detail: 'This is a page of the D9010 VmApp website about launcher versions.', buttons: ['Open in Browser', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true }, 'open-page');
+    if (r !== 0) return false;
+    await shell.openExternal(url);
+    return true;
+  }
+
   /** The loader's own picker for a manifest folder request (permission sheet). */
   pickGrantFolder(parent, app, req) {
     const rw = req.access === 'readwrite';

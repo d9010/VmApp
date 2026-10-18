@@ -9,6 +9,7 @@
   "company": "D9010 Inc.",
   "companyUrl": "https://d9010.com",
   "nav": [
+    ["Download", "/download"],
     ["Docs", "/docs/"],
     ["How it works", "/how-it-works"],
     ["Security", "/security"],

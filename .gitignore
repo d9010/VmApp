@@ -1,6 +1,7 @@
 /out/
 /website/dist/
 /website/.leak-markers
+/website/.release.local.json
 .wrangler/
 target/
 node_modules/

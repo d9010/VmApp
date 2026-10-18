@@ -38,6 +38,7 @@
       "title": "Project",
       "items": [
         { "src": "SPEC.md", "slug": "spec", "title": "Specification", "summary": "The binding contract for the app format and the platform's rules." },
+        { "src": "CHANGELOG.md", "slug": "changelog", "title": "Changelog", "summary": "What changed in every version of the launcher." },
         { "src": "GOVERNANCE.md", "slug": "governance", "title": "Governance", "summary": "The numbered invariants every change is reviewed against." },
         { "src": "CONTRIBUTING.md", "slug": "contributing", "title": "Contributing", "summary": "How to contribute to the platform." },
         { "src": "SECURITY.md", "slug": "security-policy", "title": "Security policy", "summary": "How to report a vulnerability." }

@@ -66,7 +66,7 @@ runtimes for every app at once. → [PRODUCTION.md](PRODUCTION.md)
 - **It is open source.**
 - **Its builds are reproducible.** The init, the kernel, the runtimes and app packages rebuild to identical bytes, so
   anyone can rebuild and compare.
-- **Releases are signed and notarized,** with checksums and an SBOM.
+- **Releases are code-signed,** with checksums and an SBOM.
 - **The Linux kernel's source is offered,** as its GPL licence requires.
 - **The rules can't be broken quietly.** They're numbered in [../GOVERNANCE.md](../GOVERNANCE.md), every
   contribution is reviewed against them, and protected parts need the maintainer's sign-off.

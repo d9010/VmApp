@@ -145,12 +145,64 @@ Runtime images also carry their own licences: Node.js (MIT), .NET (MIT) and Debi
 
 ## 5. Updates
 
-Not built yet. The plan, consistent with INV-G3 (no network without the user):
-- the loader checks a **signed** release feed only when the user allows it, with an off switch;
-- each update downloads the full app, verified by signature;
-- runtime updates arrive with loader updates. A runtime-only update can use the signed runtime index.
+The launcher updates itself ([SPEC.md](../SPEC.md) §8.10, INV-U1). What the user sees: when a newer version exists, a card appears at the top
+of the launcher window with what changed, and the user chooses **Update now**, **Later** or **Skip this version**. Nothing is downloaded
+without that click and nothing restarts without a second one (**Restart to update**).
 
-## 6. Release checklist
+How it works, and what a release must therefore get right:
+- The launcher asks one fixed address, `https://vmapp.dev/updates/mac-arm64/latest.json`, once at start and then about every 24 hours; it
+  sends no identifier, no list of apps, not even its own version (it compares the answer with its own version). The user can turn the check
+  off in Host Capabilities (`checkForUpdates`) and ask at any time with **Check for Updates…**.
+- The feed is a small JSON file that `node publish.js --release` generates (`website/release.js`, `website/build.js`) from the release: version,
+  the zip's address (on the GitHub release) with its SHA-256 and size, the changes for the card, the tag and commit, and the minimum macOS.
+  The launcher validates it strictly (`cleanLauncherFeed` in `hostlib/updates.js`: only `https`, only the hosts `github.com` and `vmapp.dev`,
+  no redirects), and the publish script runs the same function, so a feed the launcher would reject is never deployed.
+- The download and the install are done by Electron's `autoUpdater` (Squirrel.Mac), which accepts only a build **signed with the same Developer ID
+  as the running launcher**. A stolen feed address therefore cannot install other software: the install fails.
+- Ad-hoc and development builds never update in place; they show a **Download** button that opens the download page instead.
+- Runtime updates arrive with launcher updates (the runtimes are bundled).
+
+Because the in-place update needs a signed build, a release is only ever made from a Developer ID build (section 2.1). The first
+version cannot test the update itself: that needs two signed releases (see section 6).
+
+## 6. Releasing a new version (one command)
+
+`node publish.js --release` (in `website/`; `npm run release`) makes a release end to end and checks every step. Do these, in order:
+
+1. **Raise the version** in `loader/package.json` (for example `0.1.0` → `0.1.1`) and **write the changelog**: a new entry at the top of
+   [../CHANGELOG.md](../CHANGELOG.md), `## [0.1.1] - YYYY-MM-DD`, an optional one-line summary, then `### Added` / `### Changed` / `### Fixed`
+   bullets in plain words. Users read these on the update card (the first sentence of each bullet), on the download page, on the GitHub release and
+   on the website's changelog page, so write them for users, not for developers.
+2. **Build, sign and notarize** (section 2.1): `SIGN_IDENTITY=... tools/package-mac.sh --with-examples --examples-dir=<folder>`, then
+   `bash tools/notarize-mac <profile>`. The result is `out/dist/D9010-VmApp-Launcher-<version>-mac-arm64.zip`.
+3. **Publish the source**: refresh the public export (`tools/export-github --out <public checkout> --refresh`), commit and push it so that GitHub is at
+   the commit the build was made from. The release tags that commit.
+4. **Tell the script where the public checkout is** (once): `export VMAPP_EXPORT_REPO=<public checkout>`, or put `{"exportRepo": "<path>"}` in
+   `website/.release.local.json` (git-ignored).
+5. **Check, then release**:
+   ```sh
+   cd website
+   node publish.js --release --dry-run     # every check, nothing made
+   node publish.js --release               # the release
+   ```
+
+What `--release` checks before it makes anything: the zip is named for the version of `loader/package.json`, is signed with a Developer ID (not
+ad hoc), is accepted by macOS's Gatekeeper as a notarized build, has the stapled ticket, and its app reports that version; `CHANGELOG.md` has a
+dated, non-empty entry for the version; the public checkout is clean, at `origin/main`, at the same version and carries the changelog; the tag and
+the GitHub release do not exist yet; the update feed would pass the launcher's own validation.
+
+What it then does: tags the commit (`v<version>`) and pushes the tag; creates the GitHub release (the zip, `SHA256SUMS` and notes made from
+the changelog entry, marked **latest**); reads the release back (asset size and SHA-256 must match what was uploaded); writes
+`website/src/release.json`; builds the site (the **Download** page and button with the version, the tag and commit it was built from, the SHA-256
+and what changed; the changelog page; `updates/mac-arm64/latest.json`); deploys it; and verifies the public site, the feed included, byte for byte.
+Installed launchers see the new version on their next check. The repository's **Download** link is the release page
+(`https://github.com/d9010/VmApp/releases/latest`), which always shows the newest release.
+
+If it stops in the middle: before the tag is pushed nothing is changed. After the release exists but before the site is deployed, run
+`node publish.js --site-only --live` (the site is rebuilt from `website/src/release.json`). A version is released once; a mistake is fixed by
+a new version, not by replacing a release. Commit `website/src/release.json` with the next documentation change so the source matches what is live.
+
+## 7. Release checklist
 
 - [ ] `tools/check-invariants` passes
 - [ ] unit, e2e, apps, template, convert, registry and loader suites pass on a clean checkout
@@ -159,3 +211,6 @@ Not built yet. The plan, consistent with INV-G3 (no network without the user):
 - [ ] `SHA256SUMS`, the SBOM, runtime digests, the commit hash and the kernel source offer are published
 - [ ] the release notes list SPEC or format changes and any invariant changes (and there should be none without a
       GOVERNANCE pull request)
+- [ ] `node publish.js --release --dry-run` passes, then `node publish.js --release` (section 6): tag, GitHub release, Download page, update feed
+- [ ] on a Mac that has the **previous** signed version installed: the update card appears, **Update now** downloads, **Restart to update**
+      relaunches into the new version. (The first release has no previous version; test this with the second.)

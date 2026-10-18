@@ -1,0 +1,107 @@
+/* The D9010 logo beside the launcher's name in the library header (the dark logo is inverted on a dark window). */
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-logo {
+  height: 30px;
+  width: auto;
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .brand-logo {
+    filter: invert(1) brightness(1.15);
+  }
+}
+
+/* The launcher update card (library window). Same look as the banners and sheets around it. */
+#update-root {
+  padding: 0 24px;
+}
+.update-card {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.update-card h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.update-card p {
+  margin: 0 0 8px;
+}
+.update-card.error {
+  border-color: var(--danger);
+}
+.update-card.uptodate {
+  border-color: var(--ok);
+}
+.update-card.checking,
+.update-card.downloading {
+  border-color: var(--line);
+}
+.update-new {
+  margin: 8px 0 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.update-new-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.update-new ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.update-new li {
+  margin: 2px 0;
+}
+.update-card button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.update-bar {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--chip);
+  overflow: hidden;
+}
+.update-bar span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--accent);
+  animation: update-slide 1.4s ease-in-out infinite;
+}
+@keyframes update-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-bar span {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

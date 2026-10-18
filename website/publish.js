@@ -11,6 +11,8 @@
 //   node publish.js --no-verify           deploy, skip the verification
 //   node publish.js --dry-run             build and scan; print the commands that would run; call nothing else
 //   node publish.js --verify-only         deploy nothing; compare the existing dist/ (and the API's behaviour) with what is live
+//   node publish.js --release             release the signed launcher build: git tag, GitHub release, download page, update feed, changelog
+//                                         (release.js; add --dry-run to run every check and make nothing; --zip PATH to name the build)
 //
 // Node built-ins only. Exit code 0 on success, 1 on any failure. No token is ever read, printed or logged here: Wrangler keeps its own
 // login, or reads CLOUDFLARE_API_TOKEN from the environment it inherits.
@@ -55,6 +57,7 @@ const RETRY_WAITS_MS = [10000, 15000, 15000, 20000];
 const FETCH_TIMEOUT_MS = 30000;
 const FETCH_PARALLEL = 6;
 const UNKNOWN_PATH = '/no-such-page-xyz';
+const FEED_FILE = 'updates/mac-arm64/latest.json';
 
 const USAGE = `Usage: node publish.js [options]
 
@@ -67,6 +70,10 @@ Options:
   --with-tests    run the API's tests (npm test in ../registry-worker) before deploying it
   --dry-run       build and scan, print the commands that would run, call nothing else
   --verify-only   deploy nothing: compare dist/ with the live site, and check the live API
+  --release       release the launcher: checks the signed build, tags the public repository, creates the GitHub release (zip, checksum,
+                  notes from CHANGELOG.md), then deploys the site with the new download page and update feed and checks it live.
+                  The version comes from loader/package.json. Needs VMAPP_EXPORT_REPO or website/.release.local.json (see README)
+  --zip PATH      with --release: the notarized zip (default: ../out/dist/D9010-VmApp-Launcher-<version>-mac-arm64.zip)
   --no-verify     do not verify after the deploy
   --url URL       verify the site at URL (for example http://127.0.0.1:8081)
   --live          verify the site at siteUrl from site.json (the public address) instead of the Pages address
@@ -83,7 +90,7 @@ const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
 class UsageError extends Error {}
 
 function parseArgs(argv) {
-  const opts = { dryRun: false, verifyOnly: false, noVerify: false, live: false, url: null, apiUrl: null, siteOnly: false, apiOnly: false, withTests: false, help: false };
+  const opts = { dryRun: false, verifyOnly: false, noVerify: false, live: false, url: null, apiUrl: null, siteOnly: false, apiOnly: false, withTests: false, release: false, zip: null, help: false };
   const value = (a, i, name, example) => {
     const v = a.startsWith(`${name}=`) ? a.slice(name.length + 1) : argv[i + 1];
     if (!v || v.startsWith('--')) throw new UsageError(`${name} needs an address, for example ${name} ${example}`);
@@ -99,7 +106,11 @@ function parseArgs(argv) {
     else if (a === '--site-only') opts.siteOnly = true;
     else if (a === '--api-only') opts.apiOnly = true;
     else if (a === '--with-tests') opts.withTests = true;
-    else if (a === '--url' || a.startsWith('--url=')) {
+    else if (a === '--release') opts.release = true;
+    else if (a === '--zip' || a.startsWith('--zip=')) {
+      opts.zip = value(a, i, '--zip', '../out/dist/D9010-VmApp-Launcher-0.1.0-mac-arm64.zip');
+      if (a === '--zip') i++;
+    } else if (a === '--url'|| a.startsWith('--url=')) {
       opts.url = value(a, i, '--url', 'http://127.0.0.1:8081');
       if (a === '--url') i++;
     } else if (a === '--api-url' || a.startsWith('--api-url=')) {
@@ -110,6 +121,8 @@ function parseArgs(argv) {
   if (opts.verifyOnly && opts.dryRun) throw new UsageError('--verify-only and --dry-run cannot be combined');
   if (opts.verifyOnly && opts.noVerify) throw new UsageError('--verify-only and --no-verify cannot be combined');
   if (opts.siteOnly && opts.apiOnly) throw new UsageError('--site-only and --api-only cannot be combined');
+  if (opts.zip && !opts.release) throw new UsageError('--zip only goes with --release');
+  if (opts.release && (opts.verifyOnly || opts.apiOnly || opts.noVerify)) throw new UsageError('--release cannot be combined with --verify-only, --api-only or --no-verify (a release is always checked)');
   return opts;
 }
 
@@ -195,6 +208,8 @@ async function verifyOnce(base) {
   // [path, file in dist]: every page of the sitemap, robots.txt, sitemap.xml, and the files in assets/.
   const checks = pages.map((p) => [p, fileForPath(p)]);
   checks.push(['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml']);
+  // the launcher's update feed (only once there is a release): the file the installed launchers ask
+  if (fs.existsSync(path.join(DIST, FEED_FILE))) checks.push([`/${FEED_FILE}`, FEED_FILE]);
   for (const f of filesIn(path.join(DIST, 'assets'))) {
     const rel = path.relative(DIST, f).split(path.sep).join('/');
     checks.push([`/${rel}`, rel]);
@@ -503,6 +518,24 @@ async function main() {
     } catch {
       return fail(`${flag} "${value}" is not an http or https address.`);
     }
+  }
+
+  if (opts.release) {
+    let release;
+    try {
+      release = require('./release.js');
+      await release.runRelease(opts, site, ROOT);
+    } catch (e) {
+      if (e && e.releaseFailure) return fail(e.message);
+      throw e;
+    }
+    if (opts.dryRun) return 0;
+    // the release exists on GitHub: now the site (download page, changelog, feed), checked at its public address
+    console.log('\nThe release is made. Publishing the site with the download page and the update feed ...');
+    opts.live = true;
+    const code = await siteStep(opts, site);
+    if (code !== 0) console.error('error: the release itself is done, but the site step failed. Fix the cause and run: node publish.js --site-only --live');
+    return code;
   }
 
   if (!opts.apiOnly) {

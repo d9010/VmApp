@@ -6,6 +6,10 @@
 - **The window** (the app's UI) renders natively on your desktop, in a sandboxed Chromium with no network and no file access.
 - **You decide**, in the **D9010 VmApp Launcher**, which folders each app may read or write and which internet hosts it may reach. Nothing by default.
 
+**[Download the launcher for macOS](https://github.com/d9010/VmApp/releases/latest)** (Apple silicon, macOS 13 or later). The version, the commit it was built from and
+the changes are on the [release page](https://github.com/d9010/VmApp/releases/latest) and at [vmapp.dev/download](https://vmapp.dev/download); the launcher tells you
+when a newer version is available. [Changelog](CHANGELOG.md).
+
 For developers it's Electron's model with the main process moved into a VM. Apps ship only their own code (often a
 few KB), because the operating system and language runtimes are shared.
 

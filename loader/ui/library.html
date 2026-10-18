@@ -8,11 +8,12 @@
 <link rel="stylesheet" href="activity.css">
 <link rel="stylesheet" href="library.css">
 <link rel="stylesheet" href="wrap.css">
+<link rel="stylesheet" href="update.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <h1>D9010 VmApp Launcher</h1>
+    <div class="brand-row"><img class="brand-logo" src="logo.svg" alt="" width="30" height="30"><h1>D9010 VmApp Launcher</h1></div>
     <div class="muted">Apps run in their own virtual machine. You decide what each one can reach.</div>
   </div>
   <div class="actions">
@@ -24,6 +25,7 @@
     <button id="btn-install" class="primary" data-action="install" title="Install a .vmapp package file">Install from file&hellip;</button>
   </div>
 </header>
+<div id="update-root" data-role="update-root"></div>
 <div id="control-bar" data-role="control-bar" aria-live="assertive"></div>
 <section id="activity" class="activity" data-role="activity" aria-label="Activity: running apps and what they can reach"></section>
 <div id="banners" aria-live="polite"></div>
@@ -32,5 +34,6 @@
 <script src="dom.js"></script>
 <script src="activity.js"></script>
 <script src="library.js"></script>
+<script src="update.js"></script>
 </body>
 </html>

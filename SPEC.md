@@ -1649,6 +1649,79 @@ A link can lead back into an app: a sign-in page in the user's browser that redi
 
 Links with other schemes (`myapp://`); a link that opens a particular window of the app (the app decides from the path).
 
+## 8.10 Launcher updates (format 1, loader)
+
+How the launcher learns that a newer launcher exists, shows what changed, and, if the user says so, installs it. Governed by INV-U1
+(and INV-G3: "signed updates the user can turn off"). It is about the launcher itself; app updates are §8.1.
+
+### The feed
+
+One small JSON file at one fixed address, `https://vmapp.dev/updates/mac-arm64/latest.json`. The same file is the feed of Electron's
+updater (Squirrel.Mac: `url`, `name`, `notes`, `pub_date`) and carries the extra fields the launcher reads. Whatever else it holds is ignored.
+
+| Field | Meaning |
+|---|---|
+| `version` | the newest launcher, semver (required) |
+| `url` | the update's zip: an `https` address on `github.com` or `vmapp.dev`, ending in `.zip`, no credentials, no port (required) |
+| `sha256`, `size` | of that zip (required; shown and checked by the release tooling, not trusted for the install) |
+| `name`, `notes` | a title and a few plain sentences (cut to 80 and 1500 characters) |
+| `changes` | up to 12 short lines for the update card (240 characters each) |
+| `pub_date`, `tag`, `commit` | when it was released, the tag and the full commit it was built from |
+| `changelogUrl`, `pageUrl` | pages on `vmapp.dev` the card may offer to open |
+| `minimumOS` | the oldest macOS it needs (a launcher that needs more than the Mac has is not offered) |
+
+All text is cleaned like a registry's text (no control or direction-changing characters) and shown as text, never as markup.
+Anything that is not valid (a `version` that is not semver, a download address that is not https or not on a known host, a missing
+checksum) makes the whole file unusable: nothing is offered.
+
+### When the launcher asks
+
+- A little after it starts (and at most once every 6 hours across launches), then once a day while it runs, **unless the user turned
+  "Check for launcher updates" off** (Host Capabilities window; the preference `checkForUpdates`, on by default).
+- Whenever the user chooses **Check for Updates…** in the launcher's first menu. That always asks, and always shows an answer.
+
+The request is a plain `GET`: no query (not even the running version), no identifier, no cookie, no custom user agent, no list of
+apps. A redirect is not followed. A failed automatic check is only logged; a failed manual one is explained. **The server never says
+whether an update is newer: the launcher compares the versions itself** (semver; a pre-release is older than its release; a launcher
+newer than the feed, as in a development build, is "ahead" and offered nothing).
+
+### What the user sees and does
+
+A card at the top of the library: *Launcher 0.2.0 is available*, what the user has, when it was released, the size, **What's new**
+(the `changes` lines and a link to the full changelog) and the buttons:
+
+| Button | What it does |
+|---|---|
+| **Update now** | hands the feed to Electron's updater, which downloads the zip and checks the new app (below). The card says it is downloading and that nothing restarts until the user says so. |
+| **Restart to update** (after the download) | asks, in the loader's own words, before stopping any running apps, then restarts into the new version |
+| **Later** | closes the card; the next check offers it again |
+| **Skip this version** | not offered again by the automatic checks (kept in `launcher-update.json`); a newer version is; a manual check still shows it |
+| **Download** (instead of Update now) | on a copy that cannot update itself (a development build, or one signed ad hoc): opens the download page after asking |
+
+Nothing is downloaded before **Update now**, and nothing restarts before **Restart to update**.
+
+### What is trusted, and what a lying server could do
+
+| Attack | Answer |
+|---|---|
+| The server, or the network, serves a feed pointing at a malicious zip | The updater installs a new app only if it is signed by the same developer identity as the running launcher. Any other zip is refused. |
+| A feed with hostile text or addresses | Every field is cut down to the table above; addresses must be https on known hosts; text is shown as text. |
+| The feed hides a newer version, or offers none | The user stays on the version they have. Nothing is lost; downloads stay available on the website and GitHub. |
+| A feed offers an older version (a downgrade) | The launcher compares the versions itself and offers nothing that is not newer. |
+| The update request identifies the user | It carries nothing: no query, no identifier, no version, no cookie. The server learns only that some launcher asked. |
+
+### hostlib and the loader
+
+`hostlib/updates.js` (`fetchLauncherFeed`, `cleanLauncherFeed`, `launcherUpdateState`) is the only code that asks. `loader/src/updater.js`
+is the state machine (`idle`, `checking`, `available`, `downloading`, `ready`, `upToDate`, `error`) and the only code that names Electron's
+updater; `loader/main.js` wires it to the library window through channels (`upd:*`) that refuse every sender but the library window.
+`loader/ui/update.js` is the card; it can only press buttons.
+
+### Not in this step
+
+Delta updates (each update is the whole zip); release channels (beta, stable); rollback; updating while an app runs without a restart;
+other platforms (the feed is per platform: `mac-arm64` today).
+
 ## 9. The Node SDK (`require('vmapp')`, inside the `node22` runtime)
 
 It mirrors the Electron main-process API that real apps use, so porting is mostly

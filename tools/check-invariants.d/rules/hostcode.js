@@ -85,6 +85,11 @@ function ruleA1(tree) {
 
 const NET_REQUIRE = new Set(['http', 'https', 'http2', 'net', 'tls', 'dgram', 'dns', 'node:http', 'node:https', 'node:http2', 'node:net', 'node:tls', 'node:dgram', 'node:dns']);
 const URL_OK = /^https?:\/\/(www\.w3\.org|w3\.org)\//i;
+// The launcher's own updates (INV-U1): Electron's updater may appear only in these two files, and the only address the loader may name is
+// the fixed pages on vmapp.dev that the updater offers to open. The feed itself is asked in hostlib/updates.js (the one network module).
+const UPDATER_FILE = 'loader/src/updater.js';
+const UPDATER_WIRING = 'loader/main.js';
+const UPDATER_PAGE = /^https:\/\/vmapp\.dev\//;
 
 function ruleG3(tree) {
   const out = [];
@@ -96,9 +101,10 @@ function ruleG3(tree) {
       let m;
       while ((m = g.exec(sc.skel))) hit(m.index, typeof msg === 'function' ? msg(m) : msg);
     };
+    const updaterFile = file === UPDATER_FILE || file === UPDATER_WIRING; // INV-U1 checks these two strictly instead
     each(/(?<![\w$.])fetch\s*\(/, 'fetch() in the loader');
     each(/\bnet\s*\.\s*(?:request|fetch|connect|createConnection)\s*\(/, 'electron net / node net request');
-    each(/\b(?:XMLHttpRequest|WebSocket|EventSource|autoUpdater)\b/, (m) => `${m[0]} in the loader`);
+    each(updaterFile ? /\b(?:XMLHttpRequest|WebSocket|EventSource)\b/ : /\b(?:XMLHttpRequest|WebSocket|EventSource|autoUpdater)\b/, (m) => `${m[0]} in the loader`);
     each(/\bsendBeacon\s*\(|\bdownloadURL\s*\(|\bdownloadURL\b/, 'network download API');
     for (const c of findCalls(sc, /(?<![\w$.])require\s*\(/)) {
       const spec = c.args[0] ? evalStringExpr(c.args[0].text) : null;
@@ -111,8 +117,93 @@ function ruleG3(tree) {
     const re = /https?:\/\/[^\s'"`)<>]+/g;
     let m;
     while ((m = re.exec(sc.code))) {
-      if (!URL_OK.test(m[0])) hit(m.index, `URL literal ${m[0].slice(0, 80)}`);
+      if (!URL_OK.test(m[0]) && !(file === UPDATER_FILE && UPDATER_PAGE.test(m[0]))) hit(m.index, `URL literal ${m[0].slice(0, 80)}`);
     }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------------------------------------ U1
+// INV-U1 (SPEC 8.10): the launcher's own updates. What it checks, in loader/ and hostlib/:
+//   - Electron's updater API (autoUpdater, setFeedURL, checkForUpdates(), quitAndInstall) and fetchLauncherFeed appear nowhere but
+//     loader/src/updater.js and (the wiring) loader/main.js; fetchLauncherFeed is defined only in hostlib/updates.js;
+//   - in updater.js: one call each of setFeedURL (with exactly the feed address the updater was given, as json), checkForUpdates and
+//     quitAndInstall, the first two only in install() and the last only in restart(); the automatic path (start, check) never
+//     installs or restarts; the only addresses named are pages on vmapp.dev;
+//   - in main.js: install and restart are reached only through the library-window-only handlers (upd:install, upd:restart);
+//   - in the page: install and restart are called only from a click handler.
+// Nothing downloads without "Update now", nothing restarts without "Restart to update".
+
+const UPDATE_API = /\bautoUpdater\b|\bquitAndInstall\s*\(|\bsetFeedURL\s*\(|\.\s*checkForUpdates\s*\(|\bfetchLauncherFeed\b/g;
+
+/** [start, end) of the body of the class method `name` (two-space indent) in `text`, or null. */
+function methodSpan(text, name) {
+  const head = new RegExp(`^  (?:async )?${name}\\([^\\n]*\\) \\{$`, 'm').exec(text);
+  if (!head) return null;
+  const from = head.index + head[0].length;
+  const next = /^(?:  (?:async |static )?[A-Za-z_]\w*\([^\n]*\) \{|\})$/m.exec(text.slice(from));
+  return [head.index, from + (next ? next.index : text.length - from)];
+}
+
+function ruleU1(tree) {
+  const out = [];
+  const outside = (file, sc, re, where) => {
+    const g = new RegExp(re.source, re.flags);
+    let m;
+    while ((m = g.exec(sc.skel))) out.push(at('fail', file, sc, m.index, `${m[0].trim()} outside ${where}`));
+  };
+  for (const file of prodJs(tree, 'loader')) {
+    if (file === UPDATER_FILE || file === UPDATER_WIRING) continue;
+    outside(file, tree.scan(file, 'js'), UPDATE_API, `${UPDATER_FILE} and ${UPDATER_WIRING}`);
+  }
+  for (const file of prodJs(tree, 'hostlib')) {
+    if (file === 'hostlib/updates.js') continue;
+    outside(file, tree.scan(file, 'js'), /\bfetchLauncherFeed\b/g, 'hostlib/updates.js');
+  }
+
+  if (tree.exists(UPDATER_FILE)) {
+    const sc = tree.scan(UPDATER_FILE, 'js');
+    const text = sc.skel;
+    const problem = (idx, msg) => out.push(at('fail', UPDATER_FILE, sc, idx, msg));
+    const calls = (re) => [...text.matchAll(new RegExp(re.source, 'g'))].map((m) => m.index);
+    const inside = (name, idx) => {
+      const s = methodSpan(text, name);
+      return !!s && idx >= s[0] && idx < s[1];
+    };
+    for (const [re, what, method] of [[/\bsetFeedURL\s*\(/, 'setFeedURL', 'install'], [/\.\s*checkForUpdates\s*\(/, 'checkForUpdates()', 'install'], [/\bquitAndInstall\s*\(/, 'quitAndInstall', 'restart']]) {
+      const at1 = calls(re);
+      if (at1.length !== 1) problem(at1[1] || 0, `${what} must be called exactly once (found ${at1.length})`);
+      else if (!inside(method, at1[0])) problem(at1[0], `${what} must be called only in ${method}()`);
+    }
+    if (!/setFeedURL\(\s*\{\s*url:\s*this\.feedUrl,\s*serverType:\s*'json'\s*\}\s*\)/.test(sc.code)) problem(0, "setFeedURL must be called with { url: this.feedUrl, serverType: 'json' } and nothing else");
+    for (const name of ['start', 'check']) {
+      const s = methodSpan(text, name);
+      if (!s) problem(0, `${name}() not found`);
+      else if (/\binstall\s*\(|\brestart\s*\(|\bquitAndInstall\b|\.\s*checkForUpdates\s*\(/.test(text.slice(s[0], s[1]))) problem(s[0], `${name}() (the automatic path) must never install or restart`);
+    }
+    const url = /https?:\/\/[^\s'"`)<>]+/g;
+    let m;
+    while ((m = url.exec(sc.code))) if (!UPDATER_PAGE.test(m[0])) problem(m.index, `URL literal ${m[0].slice(0, 80)}: only pages on https://vmapp.dev/ may be named here`);
+  }
+
+  if (tree.exists(UPDATER_WIRING)) {
+    const sc = tree.scan(UPDATER_WIRING, 'js');
+    const lines = sc.code.split('\n');
+    lines.forEach((line, i) => {
+      if (/\bupdater\s*\.\s*(?:install|restart)\s*\(/.test(line) && !/updateHandle\(\s*'upd:(?:install|restart)'/.test(line)) {
+        out.push(fail(UPDATER_WIRING, i + 1, 'updater.install() and updater.restart() may be reached only through the upd:install and upd:restart handlers'));
+      }
+    });
+    if (/updater\s*\.\s*(?:install|restart)\s*\(/.test(sc.code) && !/const updateHandle[\s\S]{0,400}senders\.get\(event\.sender\.id\) !== 'library'/.test(sc.code)) {
+      out.push(fail(UPDATER_WIRING, null, 'the update handlers must refuse every sender but the library window'));
+    }
+  }
+
+  const page = 'loader/ui/update.js';
+  if (tree.exists(page)) {
+    tree.read(page).split('\n').forEach((line, i) => {
+      if (/\bapi\s*\.\s*(?:install|restart)\s*\(/.test(line) && !/onclick/.test(line)) out.push(fail(page, i + 1, 'install and restart may be called only from a click handler'));
+    });
   }
   return out;
 }
@@ -178,6 +269,7 @@ module.exports = {
   rules: [
     { id: 'a1-no-code-exec', inv: 'INV-A1', name: 'no eval / Function / vm / dynamic require; child_process only in hostlib/session.js and hostlib/hostproc.js', run: ruleA1 },
     { id: 'g3-no-network', inv: 'INV-G3', name: 'no network API use in loader/', run: ruleG3 },
+    { id: 'u1-launcher-updates', inv: 'INV-U1', name: "the launcher's own updates: the updater API only in loader/src/updater.js and main.js; nothing downloads or restarts without a click", run: ruleU1 },
     { id: 'deps-none', inv: 'INV-A1', name: 'no runtime dependencies (loader: Electron only as devDependency; hostlib, sdk: none)', run: ruleDeps },
   ],
 };

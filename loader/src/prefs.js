@@ -8,13 +8,16 @@
 //   experimentalGpuVulkan  false (default)  "Experimental GPU (Vulkan)" (SPEC 8.7): an app that asks for the Vulkan GPU AND that the
 //                                      user allowed it runs on the experimental libkrun backend only while this is on; off, it
 //                                      runs on the normal backend without a GPU.
+//   checkForUpdates  true (default)     "Check for launcher updates" (SPEC 8.10, INV-U1): the launcher asks, a little after it starts and
+//                                      then once a day, whether a newer launcher exists. Off: it asks only when the user chooses
+//                                      "Check for Updates…". Nothing is ever installed without the user's click.
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 
-const DEFAULTS = Object.freeze({ overlayShowTyped: false, experimentalGpuVulkan: false });
+const DEFAULTS = Object.freeze({ overlayShowTyped: false, experimentalGpuVulkan: false, checkForUpdates: true });
 
 class LoaderPrefs extends EventEmitter {
   /**

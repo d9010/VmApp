@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, protocol, ipcMain, Menu, session } = require('electron');
+const { app, BrowserWindow, protocol, ipcMain, Menu, session, autoUpdater } = require('electron');
 
 const { resolveConfig } = require('./src/config');
 const { forbiddenSwitches } = require('./src/hardening');
@@ -55,6 +55,13 @@ const devtools = require('./src/devtools');
 const devtoolsProbeLog = !cfg.isPackaged && process.env.VMAPP_TEST_DEVTOOLS_LOG ? path.resolve(process.env.VMAPP_TEST_DEVTOOLS_LOG) : null;
 const enforceDevTools = cfg.isPackaged || !!devtoolsProbeLog;
 app.setName('D9010 VmApp Launcher');
+// The About panel: macOS shows the app's own icon (the D9010 logo, build/icon.icns) beside these.
+app.setAboutPanelOptions({
+  applicationName: 'D9010 VmApp Launcher',
+  applicationVersion: app.getVersion(),
+  copyright: 'Copyright © 2026 D9010 Inc.',
+  credits: 'Open source under the MIT licence. https://vmapp.dev',
+});
 // Chromium's own state (cookies, partitions' storage) lives under the data root, never in the user's real profile.
 fs.mkdirSync(cfg.home, { recursive: true });
 app.setPath('userData', path.join(cfg.home, 'electron'));
@@ -80,6 +87,7 @@ let hostCaps = null; // the one HostCapabilities of this loader, shared by every
 let hostUi = null;
 let gpuBroker = null; // the sandboxed GPU servers, one per running app that was allowed one (SPEC 8.6)
 let prefs = null; // the loader's preferences (src/prefs.js)
+let updater = null; // the launcher's own updates (src/updater.js, SPEC 8.10)
 let hostCtl = null; // the vmapp-hostctl client (status, request-permissions, the panic shortcut)
 let devicesGate = null; // the DeviceGate: the microphone answer of app windows (SPEC 7, src/devices.js)
 let monitor = null; // the live monitor: menu-bar icon + popover (src/monitor.js)
@@ -307,6 +315,12 @@ function createLibraryWindow() {
   return libraryWin;
 }
 
+/** "Check for Updates…" (the first menu): brings the library forward and asks; the card in the library shows what the answer was. */
+function checkForUpdatesNow() {
+  createLibraryWindow();
+  if (updater) updater.check({ manual: true }).catch((e) => log('warn', `check for updates: ${e.message}`));
+}
+
 /**
  * The File menu asks the library page to open one of its own sheets ("Load examples…", "Browse registry…", "Install from file…"). The page decides
  * and shows everything; the menu only brings the library window forward and names the action. A window that is still loading
@@ -386,7 +400,17 @@ function showMenu(win, rec) {
 function buildMenu(inspector, openSettings, openMonitor, showExamples) {
   const first = {
     label: 'D9010 VmApp Launcher',
-    submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+    submenu: [
+      { role: 'about' },
+      // asks the update address now (SPEC 8.10): the answer appears as a card in the library window
+      { id: 'app-check-updates', label: 'Check for Updates…', click: () => checkForUpdatesNow() },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
   };
   const edit = { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] };
   const windowItems = (withKeys) => [
@@ -523,6 +547,14 @@ if (!app.requestSingleInstanceLock()) {
     const { HostUi } = require('./src/host-ui');
 
     log('info', `data root ${cfg.home}${cfg.homeFromEnv ? ' (from VMAPP_HOME)' : ''}`);
+    // a development run (npm start) has no app bundle to take the icon from: give its Dock icon the logo too
+    if (!cfg.isPackaged && process.platform === 'darwin' && app.dock) {
+      try {
+        app.dock.setIcon(path.join(cfg.uiDir, 'icon.png'));
+      } catch (e) {
+        log('warn', `dock icon: ${e.message}`);
+      }
+    }
     if (cfg.isPackaged) {
       const ignored = Object.keys(process.env).filter((k) => /^VMAPP_(TEST_|VM$|KERNEL$|INITRAMFS$|EXAMPLES_DIR$)/.test(k));
       if (ignored.length) log('warn', `packaged build: ignoring ${ignored.join(', ')}`);
@@ -643,6 +675,57 @@ if (!app.requestSingleInstanceLock()) {
     });
     const { Settings } = require('./src/settings');
     settings = new Settings({ catalog, store, caps: hostCaps, ctl, nativeDialogs, cfg, senders, prefs, log, onCatalogChanged: () => library.notify() });
+    // ---- the launcher's own updates (SPEC 8.10, INV-U1) ----
+    // The question "is there a newer launcher?" is network code and lives in hostlib/updates.js; Electron's updater downloads and
+    // installs, and refuses an app that is not signed like this one. Nothing downloads without "Update now", nothing restarts
+    // without "Restart to update". A development build (or an ad hoc signed one) shows the update but offers "Download" instead.
+    const { LauncherUpdater } = require('./src/updater');
+    const testFeed = !cfg.isPackaged && process.env.VMAPP_TEST_UPDATE_FEED ? process.env.VMAPP_TEST_UPDATE_FEED : ''; // dev builds only
+    const testDelay = !cfg.isPackaged && process.env.VMAPP_TEST_UPDATE_DELAY_MS ? Number(process.env.VMAPP_TEST_UPDATE_DELAY_MS) : undefined;
+    updater = new LauncherUpdater({
+      home: store.home,
+      version: app.getVersion(),
+      packaged: cfg.isPackaged,
+      prefs,
+      autoUpdater: cfg.isPackaged && process.platform === 'darwin' ? autoUpdater : null,
+      feedUrl: testFeed || undefined,
+      dev: !cfg.isPackaged,
+      osVersion: typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : '',
+      startupDelayMs: Number.isFinite(testDelay) ? testDelay : undefined,
+      log,
+    });
+    updater.on('state', (s) => library.push('upd:state', s));
+    const confirmRestart = async (parent) => {
+      const running = runner.activeIds();
+      if (running.length) {
+        const r = await nativeDialogs.message(
+          parent,
+          { type: 'question', buttons: ['Restart and update', 'Cancel'], defaultId: 0, cancelId: 1, message: 'Restart the launcher to finish updating?', detail: `${running.length === 1 ? '1 app is' : `${running.length} apps are`} running and will be stopped.` },
+          'launcher-restart',
+        );
+        if (r !== 0) return false;
+      }
+      await runner.stopAll(10000);
+      return true;
+    };
+    const updateHandle = (channel, fn) =>
+      ipcMain.handle(channel, async (event, ...args) => {
+        try {
+          if (senders.get(event.sender.id) !== 'library' || event.senderFrame !== event.sender.mainFrame) throw new Error('denied');
+          return { ok: true, result: await fn(BrowserWindow.fromWebContents(event.sender), ...args) };
+        } catch (e) {
+          log('warn', `${channel}: ${e.message}`);
+          return { ok: false, error: e.message };
+        }
+      });
+    updateHandle('upd:state', () => updater.state());
+    updateHandle('upd:check', () => updater.check({ manual: true }));
+    updateHandle('upd:install', () => updater.install());
+    updateHandle('upd:restart', (parent) => updater.restart(() => confirmRestart(parent)));
+    updateHandle('upd:skip', () => updater.skip());
+    updateHandle('upd:later', () => updater.later());
+    updateHandle('upd:dismiss', () => updater.dismiss());
+    updateHandle('upd:open', async (parent, kind) => ({ opened: await nativeDialogs.openLauncherPage(parent, updater.pageFor(String(kind))) }));
     // ---- live monitor: the menu-bar icon and its popover (running apps, what each can reach, Stop) ----
     const { Monitor } = require('./src/monitor');
     monitor = new Monitor({ store, runner, caps: hostCaps, devices: devicesGate, inspector, nativeDialogs, senders, cfg, log, openLibrary: () => createLibraryWindow() });
@@ -698,6 +781,7 @@ if (!app.requestSingleInstanceLock()) {
     if (cfg.isPackaged) app.setAsDefaultProtocolClient('vmapp');
     buildMenu(inspector, () => settings.show(), () => monitor.show(), library.examplesInfo().show);
     createLibraryWindow();
+    updater.start(); // the automatic checks (a little after start-up, then daily), unless the user turned them off
     if (process.argv.includes('--inspector')) inspector.show();
     if (process.argv.includes('--host-settings')) settings.show();
     if (process.argv.includes('--monitor')) monitor.show({ pinned: true }); // the popover, kept open (developers, tests)
@@ -716,6 +800,7 @@ if (!app.requestSingleInstanceLock()) {
     e.preventDefault();
     if (quitting) return;
     quitting = true;
+    if (updater) updater.stop();
     runner
       .stopAll(10000)
       .catch((err) => log('error', `stopping apps: ${err.message}`))

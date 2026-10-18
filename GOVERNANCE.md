@@ -348,6 +348,27 @@ revoke must never change the static share device or other slots.
 - **Not telemetry (INV-G3):** this is the app's traffic, started by the app after the user's grant. The loader's own
   network use is unchanged and confined to one module.
 
+### U. The launcher's own updates (SPEC §8.10)
+
+**INV-U1 · The launcher updates itself only on the user's click, from a signed build, and asks nothing about the user.**
+- **Asking:** one fixed `https` address on `vmapp.dev`, a little after start-up and then once a day, unless the user turned
+  that off (the `checkForUpdates` preference), and whenever the user chooses *Check for Updates…*. A plain request: no query, no
+  identifier, no version, no cookie, no custom user agent; no redirect is followed. The loader decides whether the answer is newer,
+  never the server.
+- **Using the answer:** the feed is cut down to a fixed set of fields; the download address must be `https` on `github.com` or
+  `vmapp.dev`; page links only on `vmapp.dev`; all text is shown as text. An invalid feed offers nothing.
+- **Nothing without a click:** the update is downloaded only after *Update now*, and the launcher restarts only after
+  *Restart to update* (running apps are never stopped without the user being asked). The automatic path never installs or restarts.
+- **Signed:** installing is Electron's updater's job, which accepts a new app only if it is signed by the same developer identity
+  as the running one. A copy that cannot update itself (a development build, an ad hoc signed one) shows the update and offers the
+  download page instead.
+- **Where the code lives:** the question is asked in `hostlib/updates.js` (INV-G3's one network module); Electron's updater API
+  appears only in `loader/src/updater.js` and the wiring in `loader/main.js`; the handlers refuse every sender but the library
+  window; the page can only press buttons.
+- *Verify:* `tools/check-invariants` rule `u1-launcher-updates`; `tests/unit/launcher-updates.test.js` (the request carries nothing,
+  the feed is validated), `tests/unit/loader-updater.test.js` (the state machine, "Skip", the switch, a copy that cannot update itself);
+  the loader's CDP run Y (the real launcher: the card, Later, Skip, the menu item, What's new, a quiet restart, the switch).
+
 ### G. Project hygiene
 
 **INV-G1 · The spec is normative.**
@@ -360,13 +381,15 @@ that the forbidden thing is still refused.
 
 **INV-G3 · No secrets, no telemetry.**
 - **No secrets:** none in the repository, logs or command lines.
-- **No telemetry:** the loader makes no network requests, except user-initiated ones and, later, signed updates the
-  user can turn off.
+- **No telemetry:** the loader makes no network requests, except user-initiated ones and signed updates of the launcher
+  itself that the user can turn off (INV-U1).
 - **User-initiated network, defined exactly:** installing from a registry the user named; browsing or searching
-  that registry in *Browse registry…*; publishing with *Publish…*; "Check for updates"; and launch-time checks for an
-  app whose update choice the user set to *Latest compatible* or *Always latest* (SPEC §8.1).
+  that registry in *Browse registry…*; publishing with *Publish…*; "Check for updates"; launch-time checks for an
+  app whose update choice the user set to *Latest compatible* or *Always latest* (SPEC §8.1); and the launcher's own update
+  check (SPEC §8.10, INV-U1), which also runs by itself, once a day, until the user turns it off.
 - **What those requests may carry:** the app id and version only; for browsing, only the search text, sort and page;
-  for publishing, the package and the owner token. No identifiers, no usage data, no list of other installed apps.
+  for publishing, the package and the owner token. The launcher's own update check carries nothing at all. No identifiers,
+  no usage data, no list of other installed apps.
 - **Where the code lives:** that network code is confined to one module.
 - **Apps are separate:** an app's own traffic (SPEC §8.3, INV-N1 to INV-N4) is not loader network use. It exists only
   after the user's grant and runs in `vmapp-vm`, never in the loader.
@@ -389,6 +412,7 @@ says.
 | `hostlib/session.js` (request ops, permission checks, grants, dialogs), `hostlib/bridge.js` | A1, C1–C3, D2, D3 |
 | `hostlib/package.js`, `manifest.js`, `tar.js`, `cpio.js`, `erofs.js`, `store.js` (verification, install, grants storage) | F1, D3 |
 | `hostlib/network.js` (network validation, rules for the launcher, grants, risk summary) | D3, N2, N4 |
+| `hostlib/updates.js` (the one network module, including the launcher's own update check), `loader/src/updater.js`, `loader/ui/update.js`, the update handlers in `loader/main.js` | A1, G3, U1 |
 | `host/` (shim device config, shares, slots, staging and delivery, parent watch, stdin ops, the network proxy and service tunnel `net.rs`, the command line and main loop `cli.rs`, the experimental libkrun backend `krun.rs`), `host/vmapp.entitlements`, `host/krun.entitlements` | D1, D2, D5, E1–E3, N1, N3, N4, H7, H8 |
 | `guest/` (mounts, extraction, privilege drop, control ops, the proxy and service listener `netproxy.rs`) | D4, D5, E2, N1, H7 |
 | `gpu/` (`rpc-server.sb` the sandbox profile, `pins.env` the pinned llama.cpp commit, `build.sh`; `krun/`: the experimental Vulkan backend's `vmm.sb` sandbox profile, `pins.env`, `patches/`, `build-libs.sh`, `build.sh`), `hostlib/gpu.js`, the GPU server in `hostlib/hostproc.js` | H7, H8, A1 |

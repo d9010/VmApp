@@ -245,6 +245,40 @@ function renderGpuVulkan() {
   );
 }
 
+// ---------------------------------------------------------------------------------------------- launcher updates
+// SPEC 8.10. On by default; off, the launcher asks only when you choose "Check for Updates…". Either way nothing is downloaded or
+// installed until you press "Update now" on the card in the library window.
+function renderUpdates() {
+  const sec = document.getElementById('sec-updates');
+  const on = !st.prefs || st.prefs.checkForUpdates !== false;
+  const box = h('input', { type: 'checkbox', id: 'pref-check-updates', dataset: { role: 'pref-check-updates' } });
+  box.checked = on;
+  box.addEventListener(
+    'change',
+    guarded(async () => {
+      try {
+        st.prefs = await settings.setPref('checkForUpdates', box.checked);
+        banner('info', box.checked ? 'The launcher will check for updates when it starts, and once a day.' : 'The launcher will check for updates only when you choose “Check for Updates…”.');
+      } catch (e) {
+        box.checked = !box.checked;
+        throw e;
+      }
+      renderUpdates();
+    }),
+  );
+  fill(
+    sec,
+    h('h2', {}, 'Launcher updates'),
+    h(
+      'div',
+      { class: 'muted sub' },
+      'The launcher can ask, a little after it starts and then once a day, whether a newer version of itself exists. It asks one address on vmapp.dev for a small file and sends nothing about you: no identifier, no list of your apps, not even the version you run. A card appears in the library when there is an update. Nothing is downloaded until you press “Update now”, and nothing restarts until you press “Restart to update”. You can also ask any time with “Check for Updates…” in the launcher’s menu.',
+    ),
+    h('label', { class: 'stoprow' }, box, ' Check for launcher updates automatically'),
+    h('div', { class: 'sub muted', dataset: { role: 'pref-check-updates-note' } }, on ? 'On: checks when the launcher starts, and once a day while it runs.' : 'Off: checks only when you choose “Check for Updates…”.'),
+  );
+}
+
 // ---------------------------------------------------------------------------------------------- catalog lists
 const argSummary = (t) => (t.args.length ? t.args.map((a) => a.pattern).join('   ') : 'no arguments');
 
@@ -299,6 +333,7 @@ function render() {
   renderStop();
   renderOverlay();
   renderGpuVulkan();
+  renderUpdates();
   renderTools();
   renderMcp();
 }

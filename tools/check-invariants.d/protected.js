@@ -6,7 +6,7 @@
 
 const ALL = [
   'A1', 'A2', 'B1', 'B2', 'B3', 'B4', 'B5', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3', 'D4', 'D5',
-  'E1', 'E2', 'E3', 'F1', 'F2', 'G1', 'G2', 'G3', 'G4', 'N1', 'N2', 'N3', 'N4',
+  'E1', 'E2', 'E3', 'F1', 'F2', 'G1', 'G2', 'G3', 'G4', 'N1', 'N2', 'N3', 'N4', 'U1',
 ].map((x) => `INV-${x}`);
 const inv = (...ids) => ids.map((x) => `INV-${x}`);
 
@@ -25,6 +25,8 @@ const PROTECTED = [
   { glob: 'loader/src/dialogs.js', invs: inv('B5', 'D3'), note: 'native dialogs and wording' },
   { glob: 'loader/src/devices.js', invs: inv('B3', 'D3'), note: 'the microphone gate: the only code that may answer true to an app window permission request' },
   { glob: 'loader/src/library.js', invs: inv('B5', 'D3'), note: 'permission sheet, install review, reset/uninstall' },
+  { glob: 'loader/src/updater.js', invs: inv('A1', 'G3', 'U1'), note: "the launcher's own updates: the only code that names Electron's updater" },
+  { glob: 'loader/ui/update.js', invs: inv('B5', 'U1'), note: 'the update card: it can only press buttons' },
   { glob: 'loader/ui/**', invs: inv('B5', 'D3'), note: 'loader-owned UI (permission sheet, install review)' },
   { glob: 'loader/**', invs: inv('A1', 'B1', 'B2', 'B3', 'B4', 'B5', 'D3'), note: 'loader code: assumed to contain protected parts (window creation, handlers, dialogs); package.json carries A1' },
 
@@ -40,6 +42,7 @@ const PROTECTED = [
   { glob: 'hostlib/cpio.js', invs: inv('F1', 'D3') },
   { glob: 'hostlib/store.js', invs: inv('F1', 'D3'), note: 'verification, install, grants storage' },
 
+  { glob: 'hostlib/updates.js', invs: inv('A1', 'G3', 'U1'), note: "the one network module: registry requests and the launcher's own update check" },
   { glob: 'hostlib/network.js', invs: inv('D3', 'N2', 'N4'), note: 'network validation, rules for the launcher, grants, risk summary' },
   { glob: 'host/**', invs: inv('D1', 'D2', 'D5', 'E1', 'E2', 'E3', 'N1', 'N3', 'N4', 'H7', 'H8'), note: 'launcher: shim device config, shares, slots, parent watch, stdin ops, entitlements, the network proxy and the service tunnel, the command line (cli.rs), the experimental libkrun backend (krun.rs)' },
   { glob: 'guest/**', invs: inv('D4', 'D5', 'E2', 'N1', 'H7'), note: 'vmapp-init: mounts, extraction, privilege drop, control ops, the proxy and the service listener' },

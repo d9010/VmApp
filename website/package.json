@@ -7,7 +7,9 @@
     "build": "node build.js",
     "start": "node build.js --serve 8080",
     "deploy": "node publish.js",
-    "deploy:dry-run": "node publish.js --dry-run"
+    "deploy:dry-run": "node publish.js --dry-run",
+    "release": "node publish.js --release",
+    "release:dry-run": "node publish.js --release --dry-run"
   },
   "dependencies": {
     "marked": "18.0.14"

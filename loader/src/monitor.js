@@ -16,6 +16,7 @@
 //   network      traffic rows of kind 'net' (SPEC 8.3), when the loader emits them
 // Events are matched by kind only; their payloads are never read or kept.
 
+const path = require('path');
 const { EventEmitter } = require('events');
 const { BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
 const { pillOfEvent, buildPills, PULSE_MS } = require('./monitor-model');
@@ -24,8 +25,24 @@ const WIDTH = 400;
 const MIN_HEIGHT = 130;
 const MAX_HEIGHT = 560;
 
+/**
+ * The menu-bar icon: the D9010 logo, a macOS template image (black on transparent; the system tints it for light, dark and
+ * highlighted menu bars). The files are trayTemplate.png (18 px) and trayTemplate@2x.png (36 px) in the loader's ui folder, made by
+ * build/make-icons.sh. Without them (a damaged install) a ring-and-dot icon drawn in code stands in.
+ */
+function trayImage(uiDir) {
+  if (uiDir) {
+    const img = nativeImage.createFromPath(path.join(uiDir, 'trayTemplate.png')); // @2x is picked up beside it
+    if (!img.isEmpty()) {
+      img.setTemplateImage(true);
+      return img;
+    }
+  }
+  return drawnTrayImage();
+}
+
 /** A monochrome ring-and-dot icon drawn in code (no image file), 18 pt at 2x, a macOS template image. */
-function trayImage() {
+function drawnTrayImage() {
   const S = 36;
   const buf = Buffer.alloc(S * S * 4);
   const c = (S - 1) / 2;
@@ -171,7 +188,7 @@ class Monitor extends EventEmitter {
 
   _tray() {
     try {
-      this.tray = new Tray(trayImage());
+      this.tray = new Tray(trayImage(this.cfg && this.cfg.uiDir));
       this.tray.setToolTip('D9010 VmApp Launcher: no app is running');
       this.tray.on('click', () => this.toggle());
       this.tray.on('right-click', () => {

@@ -79,6 +79,18 @@ if (page === 'library.html') {
     prepareRegistryVersion: (id, version) => call('lib:prepareRegistryVersion', id, version),
     checkUpdates: (id) => call('lib:checkUpdates', id),
     onChanged: (cb) => listen('lib:changed', () => cb()),
+    // the launcher's own updates (SPEC 8.10): the state of the update card, and what each button does. Each is a click.
+    update: {
+      state: () => call('upd:state'),
+      onState: (cb) => listen('upd:state', cb),
+      check: () => call('upd:check'),
+      install: () => call('upd:install'),
+      restart: () => call('upd:restart'),
+      skip: () => call('upd:skip'),
+      later: () => call('upd:later'),
+      dismiss: () => call('upd:dismiss'),
+      open: (kind) => call('upd:open', kind === 'changelog' ? 'changelog' : 'download'),
+    },
   });
 } else if (page === 'settings.html') {
   // The Host Capabilities window: the user's catalog, the macOS permissions, Stop everything. Each call is a click.

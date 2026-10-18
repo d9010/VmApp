@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The launcher's app icon: the D9010 logo on a silver tile, on macOS's icon grid (824 pt tile inside the 1024 canvas). Master of
+       loader/build/icon.icns and loader/ui/icon.png; regenerate with loader/build/make-icons.sh. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dde1e5"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111111"/>
+      <stop offset="50%" stop-color="#666666"/>
+      <stop offset="100%" stop-color="#111111"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="128%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" filter="url(#shadow)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" fill="none" stroke="#b4bac0" stroke-opacity="0.75"/>
+  <g transform="translate(512 512) scale(4.5) translate(-198 -96.8)">
+    <polygon fill="url(#mark)" points="231.38 41.2 231.19 41.2 169.05 41.2 142.13 41.2 142.13 67.93 142.13 124.14 164.44 124.14 164.44 67.93 164.44 63.69 231.38 63.69 231.38 129.89 169.48 129.89 169.48 152.39 231.19 152.39 231.38 152.39 253.87 129.89 253.87 129.71 253.87 63.88 253.87 63.69 231.38 41.2"/>
+    <rect fill="url(#mark)" x="142.27" y="128.35" width="23.02" height="23.85"/>
+  </g>
+</svg>

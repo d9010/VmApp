@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="132" height="132" viewBox="132 31 132 132" role="img" aria-label="D9010">
+  <defs>
+    <linearGradient id="staticGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111111"/> <stop offset="50%" stop-color="#666666"/> <stop offset="100%" stop-color="#111111"/> </linearGradient>
+  </defs>
+  <g>
+    <polygon fill="url(#staticGrad)" points="231.38 41.2 231.19 41.2 169.05 41.2 142.13 41.2 142.13 67.93 142.13 124.14 164.44 124.14 164.44 67.93 164.44 63.69 231.38 63.69 231.38 129.89 169.48 129.89 169.48 152.39 231.19 152.39 231.38 152.39 253.87 129.89 253.87 129.71 253.87 63.88 253.87 63.69 231.38 41.2"/>
+    <rect fill="url(#staticGrad)" x="142.27" y="128.35" width="23.02" height="23.85"/>
+  </g>
+</svg>

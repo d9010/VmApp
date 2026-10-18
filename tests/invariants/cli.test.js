@@ -19,7 +19,7 @@ test('exit 0 and a PASS line per rule on the good tree', () => {
   const r = run('--root', GOOD);
   assert.equal(r.status, 0, r.stdout);
   const lines = r.stdout.split('\n').filter((l) => /^(PASS|FAIL|WARN)\s/.test(l));
-  assert.equal(lines.length, 16);
+  assert.equal(lines.length, 17);
   assert.ok(lines.every((l) => l.startsWith('PASS')));
   assert.match(r.stdout, /^PASS\s+INV-B1\s/m);
 });

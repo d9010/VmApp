@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The menu-bar icon: the D9010 logo in one colour with a transparent background. macOS tints a template image to match the menu bar
+       (light, dark, highlighted). Master of loader/ui/trayTemplate.png and trayTemplate@2x.png; regenerate with loader/build/make-icons.sh. -->
+  <g transform="translate(512 512) scale(7.8) translate(-198 -96.8)">
+    <polygon fill="#000000" points="231.38 41.2 231.19 41.2 169.05 41.2 142.13 41.2 142.13 67.93 142.13 124.14 164.44 124.14 164.44 67.93 164.44 63.69 231.38 63.69 231.38 129.89 169.48 129.89 169.48 152.39 231.19 152.39 231.38 152.39 253.87 129.89 253.87 129.71 253.87 63.88 253.87 63.69 231.38 41.2"/>
+    <rect fill="#000000" x="142.27" y="128.35" width="23.02" height="23.85"/>
+  </g>
+</svg>

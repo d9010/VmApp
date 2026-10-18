@@ -108,7 +108,9 @@ const appPaths = await packager({
   appVersion: loaderPkg.version,
   buildVersion: loaderPkg.version,
   appCategoryType: 'public.app-category.utilities',
-  appCopyright: 'D9010 VmApp',
+  appCopyright: 'Copyright © 2026 D9010 Inc. MIT licence.',
+  // the D9010 logo: Finder, the Dock, Cmd-Tab and the About panel (made by build/make-icons.sh from build/icons/app-icon.svg)
+  icon: path.join(LOADER, 'build', 'icon.icns'),
   darwinDarkModeSupport: true,
   // app links (SPEC 8.9): the loader is the Mac's handler of vmapp://<app id>/… (Info.plist CFBundleURLTypes)
   protocols: [{ name: 'D9010 VmApp app link', schemes: ['vmapp'] }],

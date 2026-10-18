@@ -106,6 +106,11 @@ class Library {
     }
   }
 
+  /** Sends one message to the library window(s): the launcher updater's state (`upd:state`). */
+  push(channel, payload) {
+    this._toLibrary(channel, payload);
+  }
+
   /** The File menu asks the library page to open a loader sheet ("Load examples…", "Browse registry…", "Install from file…"). */
   menuAction(action) {
     if (!MENU_ACTIONS.includes(action)) throw new Error(`unknown menu action ${String(action).slice(0, 40)}`);

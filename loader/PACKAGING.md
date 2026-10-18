@@ -42,7 +42,8 @@ Caches stay in the scratch folder `$VMAPP_WORK` (default `out/work`, git-ignored
    - `@electron/packager`: darwin/arm64, `asar: true`, bundle id `com.vmapp.loader`, `LSMinimumSystemVersion 13.0`,
      `ElectronAsarIntegrity` written to Info.plist; Electron's camera/Bluetooth/system-audio usage strings replaced by a
      neutral "does not use this device" text, and `NSMicrophoneUsageDescription` by the text macOS shows when an app you allowed
-     asks to listen (SPEC 8.4); no icon yet (Electron's default `electron.icns`);
+     asks to listen (SPEC 8.4); the D9010 logo as the app icon (`build/icon.icns`, made from `build/icons/app-icon.svg` by
+     `build/make-icons.sh`; the menu-bar icon and the logo in the library header are `ui/trayTemplate*.png` and `ui/logo.svg`);
    - `@electron/fuses` (below);
    - copies the VM bits and the host-capabilities helper `vmapp-hostctl` into `Contents/Resources/vmapp/` with APFS
      clones (`chmod 0755`; `src/config.js` resolves it as `<Resources>/vmapp/vmapp-hostctl`, and a packaged loader never
@@ -219,8 +220,18 @@ ad hoc); every Mach-O is already hardened-runtime signed, which notarization req
 
 ## Open issues
 
-- Developer ID signing and notarization pending (credentials). Ad-hoc builds need `disable-library-validation`.
-- No app icon (default Electron icon); `Resources/*.lproj` Chromium locales are all shipped.
+- Ad-hoc builds need `disable-library-validation`; only a Developer ID build (with `entitlements.mac.plist`, notarized with `tools/notarize-mac`) opens
+  without a warning on other Macs.
+- `Resources/*.lproj` Chromium locales are all shipped.
 - arm64 only; no universal build. Windows is out of scope here.
-- Auto-update (INV-G3 "signed updates the user can turn off") is not built.
-- Not notarized, so Gatekeeper warns on first open on other machines.
+
+## Self-update (SPEC §8.10)
+
+The launcher updates itself with Electron's `autoUpdater` (Squirrel.Mac, `loader/src/updater.js`), fed by `https://vmapp.dev/updates/mac-arm64/latest.json`
+(`hostlib/updates.js`). What a build must have for this to work:
+
+- It must be signed with a **Developer ID** (Squirrel.Mac refuses to install over an ad-hoc app, and requires the new app to be signed by the same
+  identity). Ad-hoc and `npm start` builds detect this and show **Download** instead of **Update now**.
+- `CFBundleShortVersionString` must be the version of `loader/package.json`: the launcher compares it with the feed's `version`.
+- The release zip is made with `ditto -c -k --keepParent` (Squirrel reads that format) and is named `D9010-VmApp-Launcher-<version>-mac-arm64.zip`.
+- The feed and the GitHub release are made together by `node publish.js --release` ([../docs/PRODUCTION.md](../docs/PRODUCTION.md) section 6).

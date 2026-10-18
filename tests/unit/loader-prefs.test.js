@@ -19,8 +19,9 @@ test('prefs: overlayShowTyped is off by default and nothing is written until the
   const p = new LoaderPrefs({ home: d });
   assert.equal(p.get('overlayShowTyped'), false);
   assert.equal(p.get('experimentalGpuVulkan'), false, 'the experimental Vulkan backend (SPEC 8.7) is off by default');
-  assert.deepEqual(p.all(), { overlayShowTyped: false, experimentalGpuVulkan: false });
-  assert.deepEqual(DEFAULTS, { overlayShowTyped: false, experimentalGpuVulkan: false });
+  assert.equal(p.get('checkForUpdates'), true, 'the launcher asks about updates by default (SPEC 8.10); the user can turn it off');
+  assert.deepEqual(p.all(), { overlayShowTyped: false, experimentalGpuVulkan: false, checkForUpdates: true });
+  assert.deepEqual(DEFAULTS, { overlayShowTyped: false, experimentalGpuVulkan: false, checkForUpdates: true });
   assert.equal(fs.existsSync(path.join(d, 'loader-prefs.json')), false);
 });
 
@@ -29,9 +30,9 @@ test('prefs: set is saved and read back by a new loader; setting the same value 
   const p = new LoaderPrefs({ home: d });
   const seen = [];
   p.on('changed', (v) => seen.push(v));
-  assert.deepEqual(p.set('overlayShowTyped', true), { overlayShowTyped: true, experimentalGpuVulkan: false });
+  assert.deepEqual(p.set('overlayShowTyped', true), { overlayShowTyped: true, experimentalGpuVulkan: false, checkForUpdates: true });
   assert.equal(new LoaderPrefs({ home: d }).get('overlayShowTyped'), true, 'survives a restart');
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, 'loader-prefs.json'), 'utf8')), { overlayShowTyped: true, experimentalGpuVulkan: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(d, 'loader-prefs.json'), 'utf8')), { overlayShowTyped: true, experimentalGpuVulkan: false, checkForUpdates: true });
   p.set('overlayShowTyped', true);
   assert.equal(seen.length, 1, 'no change, no event');
   p.set('overlayShowTyped', false);
@@ -70,7 +71,7 @@ test('prefs: only the settings window writes them (source check)', () => {
   assert.match(settings, /handle\('set:setPref'/);
   assert.match(settings, /this\.senders\.get\(event\.sender\.id\) !== 'settings'/, 'the settings handlers check the sender');
   // no other handler can change a preference
-  for (const f of ['library.js', 'inspector.js', 'monitor.js', 'capture-picker.js', 'overlay.js', 'badge.js', 'window-manager.js']) {
+  for (const f of ['library.js', 'inspector.js', 'monitor.js', 'capture-picker.js', 'overlay.js', 'badge.js', 'window-manager.js', 'updater.js']) {
     assert.ok(!/prefs\.set\(|setPref/.test(read('src', f)), `${f} cannot change a preference`);
   }
   assert.ok(!/setPref/.test(read('preload-app.js')), 'an app window has no way to reach the preferences');

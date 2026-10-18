@@ -345,6 +345,23 @@ not on every read.
 Closing an app's last window usually quits it, just like a normal Mac app. Quitting the loader stops all apps. If the
 loader crashes, every app's virtual machine stops with it.
 
+## Updating the launcher
+
+When a newer version of the launcher exists, a card appears at the top of its window: the new version, what changed, and three choices.
+
+- **Update now** downloads the new version (a progress line shows) and checks it. Nothing restarts yet.
+- **Restart to update** (it replaces the button once the download is ready) closes the launcher and opens the new version. Your apps, their
+  folder choices and their data are kept. Running apps stop when the launcher restarts, so finish what you are doing first.
+- **Later** hides the card until the next check; **Skip this version** hides it until an even newer version exists.
+
+The launcher asks about once a day, and **Check for Updates…** in its menu asks at once ("You're up to date" if there is nothing new). Turn the
+automatic check off in **Host Capabilities** (*Check for launcher updates automatically*); the menu item still works. The check asks one address on
+vmapp.dev and tells it nothing about you ([SECURITY.md](SECURITY.md#updates-of-the-launcher-itself)). The list of changes is also on the website: the
+[Changelog](../CHANGELOG.md) and the Download page.
+
+A launcher you built yourself (or one that is not signed with the maintainers' Developer ID) cannot update in place; its card shows
+**Download** instead, which opens the download page.
+
 ## Versions and updates
 
 Apps you install from a registry (**Browse registry…**, or **Install from registry…**: type the registry's address and the

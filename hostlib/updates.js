@@ -1027,9 +1027,119 @@ function publishDirect(file, ctx, opts) {
   });
 }
 
+// ------------------------------------------------------------------------------------------------ the launcher's own updates
+// SPEC 8.10, INV-U1 (and INV-G3: "signed updates the user can turn off"). The launcher asks ONE fixed address for a small JSON
+// file that names the newest launcher: a plain GET, no identifier, no installed version, no list of apps, no cookie, no custom
+// user agent. Whether that is newer than the running launcher is decided here and in the loader, never by the server. The file
+// is also the feed of Electron's updater (Squirrel.Mac), which downloads the zip itself and installs it only if the new app is
+// signed by the same Developer ID as the running one; so a feed that lies can at worst point at a zip that is then refused.
+// Everything the feed says is cut down to a fixed set of fields (cleanLauncherFeed) before the loader shows or uses any of it.
+
+/** The one address the launcher asks. */
+const LAUNCHER_FEED_URL = 'https://vmapp.dev/updates/mac-arm64/latest.json';
+/** Where the feed, the changelog page and the downloads page may be. */
+const LAUNCHER_PAGE_HOSTS = ['vmapp.dev'];
+/** Where the update's zip may be (a GitHub release asset: GitHub redirects it on to its own storage, which Squirrel follows). */
+const LAUNCHER_DOWNLOAD_HOSTS = ['github.com', 'vmapp.dev'];
+const LAUNCHER_FEED_MAX = 256 * 1024;
+const LAUNCHER_FEED_TIMEOUT_MS = 10000;
+
+const isLocalDev = (u) => u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+
+/** An https address on one of `hosts` (no credentials, no port). `dev` also allows plain http to this Mac, for tests only. Returns the href or ''. */
+function launcherUrl(v, hosts, { dev = false, ext = '' } = {}) {
+  if (typeof v !== 'string' || v.length > 600) return '';
+  let u;
+  try {
+    u = new URL(v);
+  } catch {
+    return '';
+  }
+  if (u.username || u.password || u.hash) return '';
+  const secure = u.protocol === 'https:' && hosts.includes(u.hostname) && !u.port;
+  if (!secure && !(dev && isLocalDev(u))) return '';
+  if (ext && !u.pathname.toLowerCase().endsWith(ext)) return '';
+  return u.href;
+}
+
+/**
+ * The newest launcher, from the feed's JSON, in a fixed shape; throws UpdateError when it is not usable. `dev` (unpackaged builds,
+ * tests) also accepts addresses on this Mac.
+ * Fields (all required unless marked): version (semver), url (the zip), sha256 and size (of the zip: shown, and checked by the
+ * release tooling), name, notes (plain text, Squirrel's own field), changes (up to 12 short lines for the card),
+ * pub_date, tag, commit, changelogUrl, pageUrl, minimumOS (each optional).
+ */
+function cleanLauncherFeed(j, { dev = false } = {}) {
+  const bad = (why) => new UpdateError(`The launcher update information cannot be used (${why}).`);
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw bad('not an object');
+  const version = typeof j.version === 'string' && j.version.length <= 64 && SEMVER_RE.test(j.version) ? j.version : '';
+  if (!version) throw bad('no valid version');
+  const url = launcherUrl(j.url, LAUNCHER_DOWNLOAD_HOSTS, { dev, ext: '.zip' });
+  if (!url) throw bad('the download address is not an https address of a known host');
+  if (typeof j.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(j.sha256)) throw bad('no checksum');
+  if (!Number.isSafeInteger(j.size) || j.size < 1 || j.size > 4 * 1024 * 1024 * 1024) throw bad('no valid size');
+  const changes = (Array.isArray(j.changes) ? j.changes : []).slice(0, 12).map((c) => cleanText(c, 240)).filter(Boolean);
+  const pub = typeof j.pub_date === 'string' ? Date.parse(j.pub_date) : NaN;
+  return {
+    version,
+    url,
+    sha256: j.sha256,
+    size: j.size,
+    name: cleanText(j.name, 80) || `Version ${version}`,
+    notes: cleanText(j.notes, 1500),
+    changes,
+    pubDate: Number.isFinite(pub) ? new Date(pub).toISOString() : '',
+    tag: typeof j.tag === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(j.tag) ? j.tag : '',
+    commit: typeof j.commit === 'string' && /^[0-9a-f]{7,40}$/.test(j.commit) ? j.commit : '',
+    changelogUrl: launcherUrl(j.changelogUrl, LAUNCHER_PAGE_HOSTS, { dev }),
+    pageUrl: launcherUrl(j.pageUrl, LAUNCHER_PAGE_HOSTS, { dev }),
+    minimumOS: typeof j.minimumOS === 'string' && /^\d+(\.\d+){0,2}$/.test(j.minimumOS) ? j.minimumOS : '',
+  };
+}
+
+/** GET the launcher feed and return the cleaned record. Only the fixed address (or, with `dev`, one on this Mac) is ever asked. */
+async function fetchLauncherFeed(url = LAUNCHER_FEED_URL, { deadlineMs = LAUNCHER_FEED_TIMEOUT_MS, dev = false } = {}) {
+  const target = launcherUrl(url, LAUNCHER_PAGE_HOSTS, { dev });
+  if (!target) throw new UpdateError('The launcher update address is not one this launcher may ask.');
+  let r;
+  try {
+    r = await getBuffer(target, deadlineMs);
+  } catch (e) {
+    if (e instanceof UpdateError) throw new UpdateError(e.message.replace('The registry', 'The update server'), { offline: e.offline, code: e.code });
+    throw e;
+  }
+  if (r.status !== 200) throw new UpdateError(`The update server answered HTTP ${r.status}.`, { status: r.status });
+  if (r.body.length > LAUNCHER_FEED_MAX) throw new UpdateError('The update server sent an unexpectedly large answer.');
+  let j;
+  try {
+    j = JSON.parse(r.body.toString('utf8'));
+  } catch {
+    throw new UpdateError('The update server sent an answer that is not valid JSON.');
+  }
+  return cleanLauncherFeed(j, { dev });
+}
+
+/**
+ * Is the feed's launcher newer than the running one, and has the user not skipped it? 'newer', 'skipped', 'same' (nothing newer) or
+ * 'ahead' (this launcher is newer than the feed: a development build). The server never decides this.
+ */
+function launcherUpdateState(currentVersion, feed, skipped = '') {
+  if (typeof currentVersion !== 'string' || !SEMVER_RE.test(currentVersion)) return 'same';
+  const c = compareVersions(feed.version, currentVersion);
+  if (c < 0) return 'ahead';
+  if (c === 0) return 'same';
+  return skipped && skipped === feed.version ? 'skipped' : 'newer';
+}
+
 module.exports = {
   Updates,
   UpdateError,
+  LAUNCHER_FEED_URL,
+  LAUNCHER_PAGE_HOSTS,
+  LAUNCHER_DOWNLOAD_HOSTS,
+  cleanLauncherFeed,
+  fetchLauncherFeed,
+  launcherUpdateState,
   publish,
   publishErrorText,
   publishTokensFile,

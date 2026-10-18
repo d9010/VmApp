@@ -86,6 +86,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import dns from 'node:dns';
+import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -405,6 +406,11 @@ async function main() {
   if (process.env.CDP_ONLY === 'U') {
     await runU();
     step('ALL PASSED (run U only)');
+    return;
+  }
+  if (process.env.CDP_ONLY === 'Y') {
+    await runY();
+    step('ALL PASSED (run Y only)');
     return;
   }
 
@@ -840,6 +846,7 @@ async function main() {
   await runM();
   await runW();
   await runU();
+  await runY();
 
   step('ALL PASSED');
 }
@@ -4577,6 +4584,148 @@ async function runU() {
   assert.ok(!logU().includes('unhandled rejection'));
   await waitFor(() => testVms(homeU).length === 0, { what: 'no VM of run U after quitting', timeout: 15000 });
   step('run U passed');
+}
+
+// =============================================================================================== run Y: the launcher's own updates
+async function runY() {
+  step('run Y: the launcher update card (SPEC 8.10, INV-U1): a card by itself, Later, the menu, What’s new, Skip, a quiet restart, the switch');
+  const homeY = path.join(ROOT, 'home-y');
+  const menuDirY = path.join(ROOT, 'menu-y');
+  const dialogLogY = path.join(ROOT, 'dialogs-y.jsonl');
+  fs.mkdirSync(homeY, { recursive: true });
+  const logY = (name) => fs.readFileSync(path.join(ROOT, `${name}.log`), 'utf8');
+  const clickMenuY = (id) => fs.writeFileSync(path.join(menuDirY, 'click.txt'), id);
+  const dialogsY = () => (fs.existsSync(dialogLogY) ? fs.readFileSync(dialogLogY, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const HOSTILE = '<img src=x onerror=alert(1)> raw markup stays text';
+
+  // the stand-in feed: what vmapp.dev/updates/mac-arm64/latest.json would answer
+  const feed = {
+    version: '0.2.0',
+    url: 'http://127.0.0.1:1/D9010-VmApp-Launcher-0.2.0-mac-arm64.zip',
+    sha256: 'c'.repeat(64),
+    size: 548 * 1024 * 1024,
+    name: 'D9010 VmApp 0.2.0',
+    notes: 'Notes.',
+    changes: ['The launcher can update itself.', HOSTILE],
+    pub_date: '2026-10-20T10:00:00Z',
+    changelogUrl: 'https://vmapp.dev/docs/changelog',
+    pageUrl: 'https://vmapp.dev/download',
+  };
+  let status = 200;
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push({ url: req.url, headers: req.headers });
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(status === 200 ? JSON.stringify(feed) : 'server trouble');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const feedUrl = `http://127.0.0.1:${server.address().port}/updates/mac-arm64/latest.json`;
+  const env = { VMAPP_TEST_UPDATE_FEED: feedUrl, VMAPP_TEST_UPDATE_DELAY_MS: '300', VMAPP_TEST_MENU_DIR: menuDirY, VMAPP_TEST_DIALOGS: JSON.stringify({ external: true }), VMAPP_TEST_DIALOG_LOG: dialogLogY };
+  const cardY = '[data-role="update-card"]';
+  const phaseY = (c) => c.eval(`(document.querySelector('[data-role="update-card"]') || {dataset:{}}).dataset.phase || null`);
+  const cardText = (c) => text(c, cardY);
+  try {
+    step('Y: the card appears by itself after start-up: version, what changed (as text), a Download button because this build cannot update itself');
+    let Y = startLoader({ home: homeY, name: 'loader-Y1', env });
+    let lib = await waitTarget(isLibrary, 'library (Y)');
+    await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the update card', timeout: 20000 });
+    const t = await cardText(lib);
+    assert.match(t, /Launcher 0\.2\.0 is available/);
+    assert.match(t, /You have 0\.1\.0\./);
+    assert.match(t, /Released October 20, 2026|Released 20 October 2026|Released .*2026/);
+    assert.match(t, /about 548 MB/);
+    assert.match(t, /The launcher can update itself\./);
+    assert.ok(t.includes(HOSTILE), 'markup from the feed is shown as text');
+    assert.equal(await lib.eval(`document.querySelectorAll('[data-role="update-card"] img').length`), 0, 'and no element came from it');
+    assert.equal(await exists(lib, '[data-action="update-install"]'), false, 'a development build has no "Update now"');
+    assert.equal(await exists(lib, '[data-action="update-download"]'), true);
+    assert.match(t, /cannot update itself/);
+    assert.equal(hits.length, 1, 'exactly one request, from the start-up check');
+    assert.equal(hits[0].url, '/updates/mac-arm64/latest.json', 'no query: not even the version is sent');
+    for (const h of ['user-agent', 'cookie', 'authorization', 'referer']) assert.equal(hits[0].headers[h], undefined, `no ${h}`);
+    await shot2x(lib, 'update-card');
+
+    step('Y: Later closes the card; "Check for Updates…" in the launcher’s menu asks again and shows it');
+    await click(lib, '[data-action="update-later"]');
+    await waitFor(async () => (await phaseY(lib)) === null, { what: 'the card gone' });
+    await waitFor(() => fs.existsSync(path.join(menuDirY, 'menu.json')), { what: 'the menu probe' });
+    const firstMenu = JSON.parse(fs.readFileSync(path.join(menuDirY, 'menu.json'), 'utf8'))[0].items;
+    assert.deepEqual(firstMenu.filter((i) => i.id || i.role).map((i) => i.id || i.role).slice(0, 3), ['about', 'app-check-updates', 'hide']);
+    assert.equal(firstMenu.find((i) => i.id === 'app-check-updates').label, 'Check for Updates…');
+    clickMenuY('app-check-updates');
+    await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the card back after the menu check', timeout: 15000 });
+    assert.equal(hits.length, 2);
+
+    step('Y: What’s new asks before opening anything, and only the vmapp.dev changelog page is offered');
+    await click(lib, '[data-action="update-changelog"]');
+    await waitFor(() => dialogsY().some((d) => d.kind === 'open-page'), { what: 'the open-page question' });
+    const op = dialogsY().find((d) => d.kind === 'open-page');
+    assert.equal(op.detail.url, 'https://vmapp.dev/docs/changelog');
+    assert.match(op.detail.message, /^Open https:\/\/vmapp\.dev\/docs\/changelog in your browser\?$/);
+    await click(lib, '[data-action="update-download"]');
+    await waitFor(() => dialogsY().filter((d) => d.kind === 'open-page').length === 2, { what: 'the second question' });
+    assert.equal(dialogsY().filter((d) => d.kind === 'open-page')[1].detail.url, 'https://vmapp.dev/download');
+    assert.ok(!logY('loader-Y1').includes('openExternal https://evil'), 'nothing else was opened');
+
+    step('Y: Skip this version hides it and is remembered; a restart then asks nothing and shows nothing');
+    await click(lib, '[data-action="update-skip"]');
+    await waitFor(async () => (await phaseY(lib)) === null, { what: 'the card gone after Skip' });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(homeY, 'launcher-update.json'), 'utf8')).skipped, '0.2.0');
+    await killLoader(Y, 'SIGTERM', 30000);
+    const hitsBefore = hits.length;
+    Y = startLoader({ home: homeY, name: 'loader-Y2', env });
+    lib = await waitTarget(isLibrary, 'library (Y, second run)');
+    await sleep(2500);
+    assert.equal(hits.length, hitsBefore, 'the last check was minutes ago: the launcher does not ask again at start-up');
+    assert.equal(await phaseY(lib), null, 'and shows nothing');
+    clickMenuY('app-check-updates'); // (a new menu probe dir state: the probe re-creates it)
+    await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'a manual check shows a skipped version anyway', timeout: 15000 });
+    await click(lib, '[data-action="update-later"]');
+
+    step('Y: "up to date" is said only when you ask; a broken update server is explained; nothing crashes');
+    feed.version = '0.1.0';
+    clickMenuY('app-check-updates');
+    await waitFor(async () => (await phaseY(lib)) === 'uptodate', { what: 'the up-to-date card', timeout: 15000 });
+    assert.match(await cardText(lib), /You have the newest launcher \(0\.1\.0\)\./);
+    await click(lib, '[data-action="update-dismiss"]');
+    await waitFor(async () => (await phaseY(lib)) === null, { what: 'the card gone' });
+    status = 500;
+    clickMenuY('app-check-updates');
+    await waitFor(async () => (await phaseY(lib)) === 'error', { what: 'the error card', timeout: 15000 });
+    assert.match(await cardText(lib), /could not check or update[\s\S]*HTTP 500/);
+    await click(lib, '[data-action="update-dismiss"]');
+    status = 200;
+    feed.version = '0.2.0';
+
+    step('Y: the switch in the Host Capabilities window: on by default; off means no check by itself, but the menu still works');
+    await click(lib, '[data-action="open-settings"]');
+    const isSettingsY = (u) => u.startsWith('vmapp-loader://ui/settings.html');
+    const set = await waitTarget(isSettingsY, 'settings window (Y)');
+    await waitSel(set, '[data-role="pref-check-updates"]', 'the launcher updates switch');
+    assert.equal(await set.eval(`document.querySelector('[data-role="pref-check-updates"]').checked`), true, 'on by default');
+    assert.match(await text(set, '[data-role="updates-panel"]'), /sends nothing about you: no identifier, no list of your apps, not even the version you run/);
+    await shot2x(set, 'update-setting');
+    await click(set, '[data-role="pref-check-updates"]');
+    await waitFor(() => fs.existsSync(path.join(homeY, 'loader-prefs.json')) && JSON.parse(fs.readFileSync(path.join(homeY, 'loader-prefs.json'), 'utf8')).checkForUpdates === false, { what: 'the switch saved as off' });
+    await killLoader(Y, 'SIGTERM', 30000);
+    fs.rmSync(path.join(homeY, 'launcher-update.json'), { force: true }); // forget "skipped" and "last checked": only the switch can keep it quiet now
+    const hitsOff = hits.length;
+    Y = startLoader({ home: homeY, name: 'loader-Y3', env });
+    lib = await waitTarget(isLibrary, 'library (Y, switch off)');
+    await sleep(2500);
+    assert.equal(hits.length, hitsOff, 'switch off: nothing was asked at start-up');
+    assert.equal(await phaseY(lib), null);
+    clickMenuY('app-check-updates');
+    await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the menu check still works', timeout: 15000 });
+    assert.equal(hits.length, hitsOff + 1);
+
+    step('Y: quit cleanly');
+    await killLoader(Y, 'SIGTERM', 30000);
+    for (const n of ['loader-Y1', 'loader-Y2', 'loader-Y3']) assert.ok(!logY(n).includes('unhandled rejection'), `${n} had no unhandled rejection`);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+  step('run Y passed');
 }
 
 const cardState2 =(c, id) => c.eval(`(document.querySelector('[data-app="${id}"]') || {dataset:{}}).dataset.state || null`);

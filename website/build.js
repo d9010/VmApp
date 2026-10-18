@@ -186,6 +186,73 @@ function appCards() {
     .join('\n');
 }
 
+// ---- the latest release ------------------------------------------------------------------------------------------------------
+// src/release.json is written by `node publish.js --release` (website/release.js) when a release is made: version, tag, commit, date,
+// the zip's address, size and SHA-256, and the changes. The download page, the home page's button and the update feed
+// (dist/updates/mac-arm64/latest.json, which the launcher asks, SPEC 8.10) are all made from it. With no release yet there is no feed
+// and the download page says so.
+const releaseFile = path.join(SRC, 'release.json');
+const release = fs.existsSync(releaseFile) ? JSON.parse(fs.readFileSync(releaseFile, 'utf8')) : null;
+
+const megabytes = (n) => `${Math.max(1, Math.round(n / (1024 * 1024)))} MB`;
+const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+
+/** The home page's main button: only once there is something to download. */
+function downloadButton() {
+  return release ? '<a class="btn primary" href="/download">Download for Mac</a>' : '';
+}
+
+/** The body of the download page. */
+function downloadSection() {
+  if (!release) {
+    return `<div class="note"><p><strong>The first release is being prepared.</strong> Until it is out, you can read how it works, browse the documentation, or build it from the <a href="${repoUrl}">source</a>.</p></div>`;
+  }
+  const r = release;
+  const commitUrl = `${repoUrl}/commit/${r.commit}`;
+  return `<section class="release" aria-label="Latest version">
+  <p class="kicker">Latest version</p>
+  <h2>D9010 VmApp ${esc(r.version)} for macOS</h2>
+  <p>Released ${esc(longDate(r.date))}. ${esc(megabytes(r.size))}. Needs macOS ${esc(r.minimumOS)} or later, on a Mac with Apple silicon.</p>
+  <p><a class="btn primary" href="${esc(r.url)}">Download for Mac</a><a class="btn ghost" href="${esc(r.releaseUrl)}">Release notes on GitHub</a></p>
+  <div class="tablewrap">
+  <table>
+    <tbody>
+      <tr><th>Version</th><td>${esc(r.version)}</td></tr>
+      <tr><th>Built from</th><td>tag <a href="${repoUrl}/tree/${esc(r.tag)}"><code>${esc(r.tag)}</code></a>, commit <a href="${esc(commitUrl)}"><code>${esc(r.commit.slice(0, 7))}</code></a></td></tr>
+      <tr><th>File</th><td><code>${esc(r.file)}</code></td></tr>
+      <tr><th>SHA-256</th><td><code class="hash">${esc(r.sha256)}</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<h2>What's new in ${esc(r.version)}</h2>
+<ul>
+${r.changes.map((c) => `  <li>${esc(c)}</li>`).join('\n')}
+</ul>
+<p><a href="/docs/changelog">Read the full changelog</a>, which lists every version.</p>
+
+<h2>Install</h2>
+<ol class="steps">
+  <li><strong>Download the zip.</strong>Use the button above. It is the same file that is attached to the GitHub release.</li>
+  <li><strong>Check it (optional).</strong>In the folder with the download, run <code>shasum -a 256 ${esc(r.file)}</code>. The answer must be the SHA-256 shown above.</li>
+  <li><strong>Move it into Applications.</strong>Unzip it, drag <code>D9010VmAppLauncher.app</code> into <code>/Applications</code> and open it. The first time, macOS asks you to confirm that you downloaded it from the internet: choose <em>Open</em>.</li>
+  <li><strong>Try an app.</strong>Click <em>Load examples</em>, tick the sample apps you want and choose <em>Install selected</em>. Installing allows nothing: each app asks for what it needs the first time you launch it.</li>
+</ol>
+
+<h2>Updates</h2>
+<p>Once installed, the launcher tells you when a newer version is available: a card appears at the top of its window with what changed, and you choose <em>Update now</em>, <em>Later</em> or <em>Skip this version</em>. Nothing is downloaded or restarted without your click. The check asks one address on this site for a small file and sends nothing about you: no identifier, no list of your apps, not even the version you run. You can turn it off in Host Capabilities, and ask yourself any time with <em>Check for Updates…</em> in the launcher's menu.</p>
+<p>Older versions stay on the <a href="${repoUrl}/releases">releases page</a>. The source of this version is the tag above.</p>`;
+}
+
+/** The update feed, from the release record; throws if the launcher itself would refuse it. */
+function updateFeed() {
+  const feed = require('./release').feedFrom(release, site.siteUrl);
+  // the launcher's own validation: a feed it would reject must never be published
+  require('../hostlib/updates').cleanLauncherFeed(feed);
+  return feed;
+}
+
 // Cloudflare's "Email Address Obfuscation" (on by default for a domain) rewrites anything that looks like an address, such as the
 // example `you@example.com` in the docs, and injects a script that our Content-Security-Policy blocks. Writing the @ as an entity
 // shows and copies exactly the same, and gives the rewriter nothing to find. Version numbers like `tool@4.1.0` do not match.
@@ -233,7 +300,7 @@ function build() {
     emit(slug === 'index' ? 'index.html' : `${slug}.html`, slug === 'index' ? '/' : `/${slug}`, {
       title: meta.title,
       description: meta.description,
-      content: tokens(body).replace('<!--APPS-->', appCards()),
+      content: tokens(body).replace('<!--APPS-->', appCards()).replace('<!--DOWNLOAD-->', downloadSection()).replace('<!--DOWNLOAD-BUTTON-->', downloadButton()),
     });
   }
 
@@ -267,6 +334,10 @@ function build() {
   fs.writeFileSync(path.join(DIST, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${list}\n</urlset>\n`);
   fs.writeFileSync(path.join(DIST, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${site.siteUrl}/sitemap.xml\n`);
   fs.writeFileSync(path.join(DIST, '_headers'), fs.readFileSync(path.join(SRC, '_headers'), 'utf8').replace('{{css}}', cssName));
+  if (release) {
+    fs.mkdirSync(path.join(DIST, 'updates', 'mac-arm64'), { recursive: true });
+    fs.writeFileSync(path.join(DIST, 'updates', 'mac-arm64', 'latest.json'), `${JSON.stringify(updateFeed(), null, 2)}\n`);
+  }
   return urls;
 }
 
