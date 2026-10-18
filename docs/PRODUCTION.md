@@ -99,6 +99,11 @@ otherwise staples the ticket and re-creates the zip. By hand, those steps are `x
 `xcrun stapler staple out/dist/D9010VmAppLauncher.app`, `ditto -c -k --keepParent out/dist/D9010VmAppLauncher.app <zip>` (re-zip after stapling) and
 `spctl --assess --type execute --verbose=4 out/dist/D9010VmAppLauncher.app`, which must say "accepted, source=Notarized Developer ID".
 
+**The zip carries no extended attributes.** Both scripts zip with `ditto -c -k --norsrc --noextattr --keepParent`. Without those flags, macOS 15 (which puts
+`com.apple.provenance` on every file) makes ditto store hundreds of `._*` entries; an extractor that cannot apply them to the frameworks' symlinks writes them
+out as real files, the Electron framework's seal breaks, and the downloaded app is refused ("could not verify … free of malware"). `--release` refuses a zip
+with `._` entries and tests the build unpacked with plain `unzip`. (Found on the first 0.1.0 download; the zip was replaced in place, the app was not changed.)
+
 **Apple opens archives inside archives.** With `--with-examples` the app carries `.vmapp` packages, and Apple's checker looks inside them (a package is a tar,
 and its core a cpio). Any macOS program in there that is not signed with your Developer ID and a secure timestamp makes the whole submission "Invalid". Our
 packages hold Linux programs, which Apple ignores, so the build must not leave macOS or Windows files in them: `apps/terminal/build.sh` deletes the
