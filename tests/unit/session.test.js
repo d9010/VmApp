@@ -413,7 +413,8 @@ test('port.forward (SPEC 8.8): the device "ports" asked AND allowed; a forwarded
   s.session.grants.devices = {};
   await assert.rejects(s.session._request('port.forward', { port: 4000 }), /permission denied: ports/);
   await waitFor(() => s.session.listPorts().length === 0, 'the forward closed after the revoke (looked at once a second)');
-  assert.ok(s.vmLines().some((l) => l.stdin && l.stdin.op === 'port-close' && l.stdin.port === 3000));
+  // the list empties before the close message reaches the VM's stdin, so wait for the message too (not for the clock)
+  await waitFor(() => s.vmLines().some((l) => l.stdin && l.stdin.op === 'port-close' && l.stdin.port === 3000), 'the port-close message to the VM');
   await assert.rejects(open('http://localhost:13000/'), /only https: URLs/, 'its link no longer opens');
   assert.deepEqual(await s.session._request('port.close', { port: 3000 }), { closed: 0 }, 'closing again needs no grant and does nothing');
 });
