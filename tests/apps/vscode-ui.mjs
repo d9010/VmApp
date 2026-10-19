@@ -414,6 +414,34 @@ async function main() {
     await sleep(1500);
     await page.shot('07-theme');
 
+    // ---- 6a. pictures of an installed extension (activity bar and tab icons): CSS and <img> cannot fetch over the bridge, so the shim
+    // loads them with fetch and swaps in data: URLs (installMediaLoader). A picture of a built-in extension asked for the way the
+    // workbench asks for an installed one (a vscode-remote-resource URL) stands in for it, and is a PNG of known size.
+    const media = await page.eval(`(async () => {
+      const cfg = JSON.parse(document.getElementById('vscode-workbench-web-configuration').dataset.settings);
+      const url = location.origin + '/vscode-remote-resource?path=' + encodeURIComponent('/app/vscode/extensions/git/resources/icons/git.png') + '&tkn=' + encodeURIComponent(cfg.connectionToken);
+      const style = document.createElement('style');
+      document.head.appendChild(style);
+      style.sheet.insertRule('.vmapp-media-test { mask: url("' + url + '") no-repeat 50% 50%; -webkit-mask: url("' + url + '") no-repeat 50% 50%; }', 0);
+      const img = document.createElement('img');
+      img.src = url;
+      document.body.appendChild(img);
+      const t = Date.now();
+      while (Date.now() - t < 20000) {
+        const rule = style.sheet.cssRules[0] && style.sheet.cssRules[0].cssText;
+        if (rule && !rule.includes('vscode-remote-resource') && rule.includes('data:image/png;base64,') && img.src.startsWith('data:image/png;base64,') && img.complete && img.naturalWidth > 0) {
+          const out = { rule: rule.length, img: img.naturalWidth };
+          style.remove(); img.remove();
+          return out;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return { rule: (style.sheet.cssRules[0] || {}).cssText, img: img.src.slice(0, 120), complete: img.complete, w: img.naturalWidth };
+    })()`);
+    assert.ok(media && media.img > 0 && typeof media.rule === 'number', `pictures of an installed extension become data: URLs in CSS and <img>: ${JSON.stringify(media)}`);
+    results.mediaLoader = media;
+    ok(`pictures served from the VM (an installed extension's activity bar and tab icons) load: the CSS mask and the <img> carry data: URLs (${media.img}px wide)`);
+
     // ---- 7. a link ----
     await command(page, 'Help: View License', /View License/i);
     const linkAsked = await waitFor(async () => {

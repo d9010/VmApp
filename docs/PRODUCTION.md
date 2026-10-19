@@ -169,6 +169,10 @@ How it works, and what a release must therefore get right:
   as the running launcher**. A stolen feed address therefore cannot install other software: the install fails.
 - Ad-hoc and development builds never update in place; they show a **Download** button that opens the download page instead.
 - Runtime updates arrive with launcher updates (the runtimes are bundled).
+- **An update is the whole zip (about 520 MB); there is no delta.** Squirrel.Mac replaces the app, and the 14 sample apps and the runtimes live inside it. So a
+  fix to a bundled sample app (or a runtime) is a new launcher release, like any other change. The lighter route is the registry: an app installed from it
+  updates by itself, as only its own package. That is not possible for the large samples yet: the registry accepts uploads up to ~95 MiB, and the
+  VS Code package is 402 MB (it needs presigned R2 uploads, see PM.md). Small apps can already be shipped that way.
 
 Because the in-place update needs a signed build, a release is only ever made from a Developer ID build (section 2.1). The first
 version cannot test the update itself: that needs two signed releases (see section 6).

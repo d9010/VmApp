@@ -3,6 +3,18 @@
 What changed in each version of the D9010 VmApp Launcher, newest first. The launcher shows the latest entry on its update card, the
 website's download page links here, and each GitHub release carries the same text.
 
+## [0.1.3] - 2026-10-18
+
+Icons now show in the Code - OSS sample app.
+
+### Fixed
+
+- In the Code - OSS (VS Code) sample, the icons of installed extensions now appear: the activity bar, file and tab icons, and icon fonts were blank before.
+
+### Changed
+
+- The sample apps now list "D9010 VmApp samples" as their publisher.
+
 ## [0.1.2] - 2026-10-18
 
 The launcher now uses one app registry, ours, and shows the newest apps first.
