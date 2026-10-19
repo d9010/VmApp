@@ -1,17 +1,17 @@
 {
-  "version": "0.1.2",
-  "tag": "v0.1.2",
-  "commit": "7a01d059f757a47340a077f057234fce2247e158",
+  "version": "0.1.3",
+  "tag": "v0.1.3",
+  "commit": "fc7ef8f72ad0fc5461900e310a3097f3849a0f3a",
   "date": "2026-10-18",
-  "file": "D9010-VmApp-Launcher-0.1.2-mac-arm64.zip",
-  "size": 548842240,
-  "sha256": "bfd15e1b848473660d5164a67d3d5b920599bba79dbe59a368fe95ee2f19e28a",
-  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.2/D9010-VmApp-Launcher-0.1.2-mac-arm64.zip",
-  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.2",
-  "notes": "The launcher now uses one app registry, ours, and shows the newest apps first.",
+  "file": "D9010-VmApp-Launcher-0.1.3-mac-arm64.zip",
+  "size": 548849080,
+  "sha256": "4397b32c42145e8cfe656e2c37b46b4015228731574edb513888b3b77c475340",
+  "url": "https://github.com/d9010/VmApp/releases/download/v0.1.3/D9010-VmApp-Launcher-0.1.3-mac-arm64.zip",
+  "releaseUrl": "https://github.com/d9010/VmApp/releases/tag/v0.1.3",
+  "notes": "Icons now show in the Code - OSS sample app.",
   "changes": [
-    "Browse registry… always lists the D9010 VmApp registry, newest apps first.",
-    "There is no longer a registry address to type: Install from registry… and Type an app id or link… are gone."
+    "In the Code - OSS (VS Code) sample, the icons of installed extensions now appear: the activity bar, file and tab icons, and icon fonts were blank before.",
+    "The sample apps now list \"D9010 VmApp samples\" as their publisher."
   ],
   "minimumOS": "13.0"
 }
