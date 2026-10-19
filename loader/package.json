@@ -1,6 +1,6 @@
 {
   "name": "vmapp-loader",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "D9010 VmApp Launcher: the user's app manager and renderer host for D9010 VmApp packages",
   "main": "main.js",

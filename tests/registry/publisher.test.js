@@ -65,13 +65,13 @@ test('unverified: the API and lists show nothing the publisher merely claims', a
   const a = buildPackage(w, 'a', { id: 'com.example.alpha', name: 'Alpha', publisher: MANIFEST_PUBLISHER });
   const r = await publish(s.url, a.file, { profile: CLAIMED });
   assert.equal(r.status, 201, r.text);
-  assert.deepEqual(r.json.publisher, { level: 'unverified', label: 'Unverified publisher' });
+  assert.deepEqual(r.json.publisher, { level: 'unverified', label: '' });
   assert.match(r.json.ownerToken, /^[0-9a-f]{64}$/);
 
   const list = (await call(s.url, '/api/apps')).json.items[0];
-  assert.deepEqual(list.publisher, { level: 'unverified', label: 'Unverified publisher' });
+  assert.deepEqual(list.publisher, { level: 'unverified', label: '' });
   const detail = (await call(s.url, '/api/apps/com.example.alpha')).json;
-  assert.deepEqual(detail.publisher, { level: 'unverified', label: 'Unverified publisher' });
+  assert.deepEqual(detail.publisher, { level: 'unverified', label: '' });
   assert.equal(detail.manifest.publisher, undefined, 'the manifest copy has no publisher string');
   assert.equal(detail.claimedPublisher, MANIFEST_PUBLISHER, 'only exposed in the clearly labelled claim field');
 

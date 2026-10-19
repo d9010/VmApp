@@ -36,11 +36,13 @@ npm test                         # = node test/loader-cdp.mjs  (real VMs, see "T
   package id, sizes, runtime/command and every permission with its purpose ("no reason given" when empty) before it
   installs. Downgrades and missing runtimes are refused with a reason.
 - **Load examples** (SPEC 8.1; `src/examples.js` (pure), `Library.examplesInfo/examplesList/installExamples` in `src/library.js`, the
-  sheet in `ui/library.js`): the sample apps that came with the loader, from `<Resources>/vmapp/examples/` when packaged
-  (`tools/package-mac.sh --with-examples`, see [PACKAGING.md](PACKAGING.md)) or `vmapp/out/examples/` (`tools/pack-examples`) in
-  development; `VMAPP_EXAMPLES_DIR` points a development loader at another folder and a packaged loader ignores it. An empty library
-  offers **Load examples** (primary) and **Install from file…**; **File → Load examples…** (⇧⌘E) is always there when the loader has
-  examples. A development loader with none says to run `tools/pack-examples`; a packaged one hides the button and the menu entry.
+  sheet in `ui/library.js`): the sample apps. The released launcher carries none and lists them from its registry: the apps of the
+  publisher whose domain the registry verified (d9010.com), installed with the registry as their source. A build made with
+  `tools/package-mac.sh --with-examples` carries them in `<Resources>/vmapp/examples/` (see [PACKAGING.md](PACKAGING.md)), and a
+  development loader reads `vmapp/out/examples/` (`tools/pack-examples`) when it holds packages; `VMAPP_EXAMPLES_DIR` points it at
+  another folder (even an empty one) and `VMAPP_EXAMPLES_FROM=registry` forces the registry; a packaged loader ignores both. An empty
+  library offers **Load examples** (primary) and **Install from file…**; **File → Load examples…** (⇧⌘E) is always there.
+  A loader that reads a folder and finds none says to run `tools/pack-examples`.
   The sheet lists each `.vmapp` as the package itself describes itself (the manifest is read from the first tar entry: name,
   description, version, size, and badges **Network: hosts**, **GPU**, **Control of your computer**, **Microphone**), with the
   "What to allow" hint from the folder's `README.md` table row for that file (else derived from the manifest), a checkbox each (all

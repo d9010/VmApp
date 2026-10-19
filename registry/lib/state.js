@@ -12,7 +12,8 @@
 // | type                | data                                                                                              |
 // | publisher.created   | { id, tokenHash, name, company, email, url }   tokenHash = SHA-256 of the owner token              |
 // | publisher.updated   | { id, name, company, email, url }              a changed email drops its verification               |
-// | publisher.verified  | { id, kind: "email", email } or { id, kind: "domain", name, method: "file"|"dns" }                  |
+// | publisher.verified  | { id, kind: "email", email } or { id, kind: "domain", name, method: "file"|"dns"|"operator" }        |
+//                         ("operator": the registry's operator vouched for the domain; the actor is "admin")
 // | app.published       | { id, version, sha256, size, packageId, publisherId, meta: { manifest, files } }                    |
 // | version.withdrawn   | { id, version, reason }                        a mark: the version stays published and downloadable |
 // | version.restored    | { id, version }                                                                                     |
@@ -76,7 +77,8 @@ function validate(ev) {
       if (d.kind === 'email') str('email', 200, false);
       else if (d.kind === 'domain') {
         str('name', 253, false);
-        if (d.method !== 'file' && d.method !== 'dns') fail(ev, 'method must be file or dns');
+        if (d.method !== 'file' && d.method !== 'dns' && d.method !== 'operator') fail(ev, 'method must be file, dns or operator');
+        if (d.method === 'operator' && ev.actor !== 'admin') fail(ev, 'only the registry operator (actor admin) can vouch for a domain');
       } else fail(ev, 'kind must be email or domain');
       break;
     case 'app.published':

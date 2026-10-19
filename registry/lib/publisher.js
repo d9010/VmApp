@@ -94,7 +94,10 @@ function normalizeDomain(input, dev) {
   return d;
 }
 
-/** The part of a publisher that may be shown publicly. Unverified: nothing but the fact that it is unverified. */
+/**
+ * The part of a publisher that may be shown publicly. Unverified: nothing is shown (an empty label; the level says why), so that
+ * what a user sees is only ever a fact somebody checked.
+ */
 function publicView(pub) {
   if (pub && pub.domain && pub.domain.name) {
     const host = hostOf(pub.domain.name);
@@ -114,7 +117,7 @@ function publicView(pub) {
     const d = emailDomain(pub.emailVerified.email);
     return { level: 'email', label: `Verified email @${d}`, emailDomain: d };
   }
-  return { level: 'unverified', label: 'Unverified publisher' };
+  return { level: 'unverified', label: '' };
 }
 
 /** Text that search may match: only verified facts. */

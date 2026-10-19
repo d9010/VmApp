@@ -69,9 +69,10 @@
       R.el('p', { class: 'muted', text: 'You approve each folder, each internet address and each device in the D9010 VmApp Launcher, and can say no to any of them. Until you allow it, the app cannot reach anything but its own private data.' }));
   }
 
-  // Only verified facts. The server sends company/url only for a verified domain; unverified publishers have
-  // nothing but the label, and the manifest's own "publisher" string is deliberately never shown.
+  // Only verified facts. The server sends company/url only for a verified domain; unverified publishers show nothing at
+  // all, and the manifest's own "publisher" string is deliberately never shown.
   function publisherBlock(pub) {
+    if (pub.level !== 'domain' && pub.level !== 'email') return '';
     var box = R.el('p', { class: 'publisher' }, R.pubBadge(pub));
     if (pub.level === 'domain') {
       if (pub.company) box.append(' ', R.el('strong', { text: pub.company }));
@@ -80,9 +81,6 @@
         if (/^https:\/\//i.test(pub.url)) box.append(' ', R.el('a', { href: pub.url, rel: 'noopener noreferrer nofollow', text: pub.url }));
         else box.append(' ', R.el('span', { text: pub.url }));
       }
-    }
-    if (pub.level === 'unverified') {
-      box.append(' ', R.el('span', { class: 'muted', text: 'Nobody has confirmed who made this app.' }));
     }
     return box;
   }

@@ -51,7 +51,8 @@ test('publish: saves the owner token (mode 0600) and reuses it for new versions'
   assert.match(r.out, new RegExp(`package id: ${v1.packageId}`));
   const token = /owner token: ([0-9a-f]{64})/.exec(r.out)[1];
   assert.match(r.out, /SAVE IT NOW/);
-  assert.match(r.out, /shown to users as: Unverified publisher/);
+  assert.match(r.out, /no publisher name is shown with this app until you verify your identity/);
+  assert.doesNotMatch(r.out, /nverified/, 'the word is not used');
   assert.ok(!r.out.includes('zoe@acme.test'));
   const tf = path.join(home, 'publish-tokens.json');
   assert.equal(fs.statSync(tf).mode & 0o777, 0o600);
@@ -115,7 +116,7 @@ test('search', async (t) => {
   assert.equal(r.code, 0, r.err);
   const lines = r.out.trim().split('\n');
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^com\.example\.beta\s+1\.0\.0\s+1 dl\s+BETA \[Unverified publisher\] - the beta thing/);
+  assert.match(lines[0], /^com\.example\.beta\s+1\.0\.0\s+1 dl\s+BETA - the beta thing$/, 'no publisher is shown for an unverified one');
   assert.match(lines[1], /^com\.example\.alpha/);
   r = await vmapp(['search', '--sort', 'name'], { env });
   assert.match(r.out.split('\n')[0], /^com\.example\.alpha/);

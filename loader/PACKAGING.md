@@ -57,9 +57,11 @@ Caches stay in the scratch folder `$VMAPP_WORK` (default `out/work`, git-ignored
 ## The sample apps: `--with-examples`
 
 `tools/package-mac.sh --with-examples` bundles the sample apps that the loader's **Load examples** installs (SPEC 8.1,
-[README.md](README.md), [../docs/USING.md](../docs/USING.md)). Without the flag the bundle has no `examples/` folder and the
-packaged loader hides the **Load examples** button and the **File → Load examples…** entry (a development loader shows both and
-says to run `tools/pack-examples`).
+[README.md](README.md), [../docs/USING.md](../docs/USING.md)). **The released launcher is built without the flag**: with no `examples/`
+folder in the bundle, **Load examples** lists the sample apps from the registry instead (the apps of the publisher whose domain the registry
+verified, d9010.com), downloads and checks the ones the user chooses, and they update from the registry (`src/examples.js`,
+`src/library.js`). A development loader without an examples folder does the same; one told to use a folder (`VMAPP_EXAMPLES_DIR`) reads it, and
+`VMAPP_EXAMPLES_FROM=registry` forces the registry (the loader test uses that).
 
 - **Source:** `vmapp/out/examples/` (`*.vmapp` and the `README.md` with the "What to allow" table), made by `tools/pack-examples`. If it
   has no `.vmapp` file, the script runs `tools/pack-examples --no-build` first, which packs only the samples whose build outputs

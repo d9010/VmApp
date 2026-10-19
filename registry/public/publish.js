@@ -48,11 +48,16 @@
     status.textContent = 'Uploading and checking ' + file.name + ' (' + R.fmtBytes(file.size) + ')...';
     R.api('/api/publish', { method: 'POST', headers: headers, body: file }).then(function (r) {
       status.textContent = '';
+      var shown = !!r.publisher && (r.publisher.level === 'domain' || r.publisher.level === 'email');
       result.append(R.el('section', { class: 'card' },
         R.el('h2', { class: 'ok', text: 'Published ' + r.id + ' ' + r.version }),
         R.el('p', null, R.el('a', { href: '/apps/' + encodeURIComponent(r.id), text: 'Open the app page' })),
         R.el('p', { class: 'muted mono', text: 'package id ' + r.packageId }),
-        R.el('p', null, 'Shown to users as: ', R.pubBadge(r.publisher), ' ', R.el('a', { href: '/publisher', text: 'Verify your identity' }))));
+        R.el('p', null,
+          shown ? 'Shown to users as: ' : 'No publisher name is shown with your app until you verify your identity. ',
+          shown ? R.pubBadge(r.publisher) : null,
+          shown ? ' ' : null,
+          R.el('a', { href: '/publisher', text: 'Verify your identity' }))));
       if (r.ownerToken) result.append(showToken(r.ownerToken));
       form.reset();
     }).catch(function (e) {

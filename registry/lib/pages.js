@@ -77,9 +77,9 @@ const downloadHref = (id, version) => `/api/apps/${encodeURIComponent(id)}/${enc
 
 /** A small badge for a publisher view {level, label}: public/common.js R.pubBadge. */
 function pubBadge(pub) {
-  const level = pub.level === 'domain' || pub.level === 'email' ? pub.level : 'unverified';
-  const mark = level === 'domain' ? '✓ ' : level === 'email' ? '✉ ' : '';
-  return html`<span class="pubbadge level-${level}">${mark + pub.label}</span>`;
+  if (pub.level !== 'domain' && pub.level !== 'email') return ''; // an unverified publisher shows nothing
+  const mark = pub.level === 'domain' ? '✓ ' : '✉ ';
+  return html`<span class="pubbadge level-${pub.level}">${mark + pub.label}</span>`;
 }
 
 /** One entry of the app list: public/home.js item(). */
@@ -138,9 +138,8 @@ function publisherBlock(pub) {
   if (pub.level === 'domain') {
     const link = pub.url ? httpsUrl(pub.url) : null;
     extra = html`${pub.company ? html` <strong>${pub.company}</strong>` : ''}${pub.url ? (link ? html` <a href="${link}" rel="noopener noreferrer nofollow">${pub.url}</a>` : html` <span>${pub.url}</span>`) : ''}`;
-  } else if (pub.level === 'unverified') {
-    extra = html` <span class="muted">Nobody has confirmed who made this app.</span>`;
   }
+  if (pub.level !== 'domain' && pub.level !== 'email') return ''; // nothing was verified, so there is nothing to say
   return html`<p class="publisher">${pubBadge(pub)}${extra}</p>`;
 }
 

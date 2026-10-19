@@ -6,6 +6,12 @@
 #   tools/pack-examples --no-build      only pack apps whose build outputs already exist (skip the others)
 #   tools/pack-examples --out DIR       write the packages somewhere else
 #   tools/pack-examples --without NAME  leave out every example whose name contains NAME (repeatable)
+#   tools/pack-examples --only NAME     pack only the examples whose name contains NAME (repeatable); the README.md is not rewritten
+#   tools/pack-examples --publish       also publish each packed example to a registry (--registry URL, default https://api.vmapp.dev),
+#                                       unless that exact package is there already (tools/lib/publish-if-new.js). Each example has its
+#                                       own version in its vmapp.json, so one app is built, packed and published on its own:
+#                                         VMAPP_PUBLISH_TOKEN=<owner token> tools/pack-examples --only 14-vscode --publish
+#                                       The owner token is $VMAPP_PUBLISH_TOKEN or the one an earlier publish saved ($VMAPP_HOME/publish-tokens.json).
 #
 # Builds that need Docker (todo, local-llm, ollama, ollama-desktop) run only when their outputs are missing.
 set -euo pipefail
@@ -14,11 +20,17 @@ VMAPP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$VMAPP/out/examples"
 BUILD=1
 WITHOUT=()
+ONLY=()
+PUBLISH=0
+REGISTRY="https://api.vmapp.dev"
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) BUILD=0 ;;
     --out) OUT="$2"; shift ;;
     --without) WITHOUT+=("${2:?--without needs a name}"); shift ;;
+    --only) ONLY+=("${2:?--only needs a name}"); shift ;;
+    --publish) PUBLISH=1 ;;
+    --registry) REGISTRY="${2:?--registry needs an address}"; shift ;;
     *) echo "pack-examples: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -65,9 +77,21 @@ source_cell() {
   if [ -n "$up" ]; then echo "$link · upstream: $up"; else echo "$link"; fi
 }
 
-built=0; packed=0; skipped=()
+built=0; packed=0; skipped=(); publish_failed=()
 INDEX="$OUT/README.md"
 rm -f "$OUT/INDEX.md"   # the old name of this file
+[ ${#ONLY[@]} -eq 0 ] || INDEX=/dev/null   # a partial run does not rewrite the table of all of them
+
+wanted() { # wanted NAME: is this example selected by --only (or is --only not used)?
+  [ ${#ONLY[@]} -eq 0 ] && return 0
+  local o
+  for o in "${ONLY[@]}"; do case "$1" in *"$o"*) return 0 ;; esac; done
+  return 1
+}
+publish_one() { # publish_one NAME: sends the packed example unless the registry has exactly these bytes
+  [ "$PUBLISH" = 1 ] || return 0
+  node "$VMAPP/tools/lib/publish-if-new.js" "$OUT/$1.vmapp" --registry "$REGISTRY" || publish_failed+=("$1")
+}
 {
   echo "# D9010 VmApp examples"
   echo
@@ -83,6 +107,7 @@ rm -f "$OUT/INDEX.md"   # the old name of this file
 
 for entry in "${APPS[@]}"; do
   IFS='|' read -r name dir marker build what allow <<< "$entry"
+  wanted "$name" || continue
   for w in ${WITHOUT[@]+"${WITHOUT[@]}"}; do
     case "$name" in *"$w"*) skipped+=("$name (left out: --without $w)"); continue 2 ;; esac
   done
@@ -102,16 +127,20 @@ for entry in "${APPS[@]}"; do
   size=$(du -h "$OUT/$name.vmapp" | cut -f1 | tr -d ' ')
   echo "| \`$name.vmapp\` ($size) | $what | $allow | $(source_cell "$name" "$dir") |" >> "$INDEX"
   packed=$((packed + 1))
+  publish_one "$name"
 done
 
 # the web-app conversion packs itself (it installs Express into its core first)
-echo "== packing 13-convert-bookmarks"
-if bash "$VMAPP/examples/convert-webapp/build.sh" "$OUT/13-convert-bookmarks.vmapp" > /dev/null 2>&1; then
-  size=$(du -h "$OUT/13-convert-bookmarks.vmapp" | cut -f1 | tr -d ' ')
-  echo "| \`13-convert-bookmarks.vmapp\` ($size) | A web app with an Express backend, converted; the server runs unchanged in the VM | nothing | $(source_cell 13-convert-bookmarks examples/convert-webapp) |" >> "$INDEX"
-  packed=$((packed + 1))
-else
-  skipped+=("13-convert-bookmarks (build failed)")
+if wanted 13-convert-bookmarks; then
+  echo "== packing 13-convert-bookmarks"
+  if bash "$VMAPP/examples/convert-webapp/build.sh" "$OUT/13-convert-bookmarks.vmapp" > /dev/null 2>&1; then
+    size=$(du -h "$OUT/13-convert-bookmarks.vmapp" | cut -f1 | tr -d ' ')
+    echo "| \`13-convert-bookmarks.vmapp\` ($size) | A web app with an Express backend, converted; the server runs unchanged in the VM | nothing | $(source_cell 13-convert-bookmarks examples/convert-webapp) |" >> "$INDEX"
+    packed=$((packed + 1))
+    publish_one 13-convert-bookmarks
+  else
+    skipped+=("13-convert-bookmarks (build failed)")
+  fi
 fi
 
 {
@@ -126,4 +155,8 @@ fi
 echo
 echo "packed $packed app(s) into $OUT (built $built)"
 [ ${#skipped[@]} -eq 0 ] || printf 'skipped: %s\n' "${skipped[@]}"
-echo "see $INDEX"
+[ "$INDEX" = /dev/null ] || echo "see $INDEX"
+if [ ${#publish_failed[@]} -gt 0 ]; then
+  printf 'NOT published: %s\n' "${publish_failed[@]}" >&2
+  exit 1
+fi

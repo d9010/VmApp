@@ -71,7 +71,7 @@ check "token saved with mode 0600" test "$(stat -f %Lp "$VMAPP_HOME/publish-toke
 OUT=$("$CLI" publish "$PKG" 2>&1); RC=$?
 check "publishing the same version again is refused" test "$RC" -ne 0
 check "the registry lists the app" has "$("$CLI" search notes)" 'dev.vmapp.notes'
-check "unverified publisher is shown as such" has "$("$CLI" search notes)" 'Unverified publisher'
+check "an unverified publisher shows nothing" test -z "$("$CLI" search notes | grep -i 'unverified')"
 
 # ---- get --install -------------------------------------------------------------------------------
 "$CLI" uninstall dev.vmapp.notes --purge > /dev/null 2>&1 || true

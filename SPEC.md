@@ -717,7 +717,17 @@ run in the core). A page's menus win for its own window; the core's apply to eve
    (full verification, then extraction), one after the other. A package that fails verification is reported with the
    precise message and does not stop the others; one whose version is already installed, or older than the installed one,
    is skipped with a note. Installing grants nothing and launches nothing: the permission sheet comes at each app's first
-   launch (INV-B5, INV-D3). A packaged loader without examples hides the entry.
+   launch (INV-B5, INV-D3).
+
+   *(Proposed 2026-10-18, effective on merge: the examples from the registry.)* A loader with no examples folder, such as the
+   released launcher, which carries none, takes the examples from its own registry instead: the apps of the publisher whose
+   **domain** the registry has verified (d9010.com), as the registry lists and describes them (what a package says about itself,
+   such as its publisher or description, never makes an app an example). The user chooses which to install; each is downloaded
+   and verified exactly as for a registry install (SPEC 8.1, "Browse registry…"), installed with that registry as its source, so
+   that it updates from there, and skipped without a download when its version is installed already. The same rules hold:
+   nothing is granted, nothing is launched, one failure does not stop the others. Without the internet the sheet says so and
+   names *Install from file…*. A loader whose examples folder holds packages, or that a development build was told to use
+   (`VMAPP_EXAMPLES_DIR`), reads the folder as above.
 2. **Launch:**
    1. **Permission sheet:** shown on first launch, after an update that adds folder requests, or whenever the user
       chose "ask every time". It lists the manifest's requests with their purpose. The user picks a folder for each,

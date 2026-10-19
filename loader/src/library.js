@@ -57,6 +57,9 @@ class Library {
     this.openSettings = o.openSettings || (() => {});
     this.registryDefault = o.registryDefault || '';
     this.examplesDir = o.examplesDir || ''; // the folder "Load examples" reads (src/config.js); the page never names a path
+    this.examplesExplicit = !!o.examplesExplicit; // a dev launcher that was told which folder: it reads that folder even when it is empty
+    this.examplesFromRegistry = !!o.examplesFromRegistry; // a dev launcher told to use the registry whatever the folder holds (tests)
+    this.examplesDomain = o.examplesDomain || examples.EXAMPLES_DOMAIN; // whose apps the registry lists as examples (src/examples.js)
     this.packaged = !!o.packaged;
     this.examplesBusy = false; // an examples install is in progress
     // token ->{ id?, file, temp, source, force, downgrade, useVersion, version }: what the user is looking at in a review
@@ -119,18 +122,62 @@ class Library {
 
   // ------------------------------------------------------------------------------------------ Load examples
 
-  /** {available, count, show, packaged, dir?}: is there anything to load, and does the UI offer it at all (src/examples.js infoOf). */
-  examplesInfo() {
-    return examples.infoOf(this.examplesDir, this.packaged);
+  /**
+   * Where the examples come from: 'folder' (the .vmapp files in the examples folder: a dev launcher, the tests, a build that bundles
+   * them) or 'registry' (the launcher's own registry: the released launcher, which carries no samples). A folder that was named
+   * explicitly, or that holds packages, wins.
+   */
+  examplesSource() {
+    if (this.examplesFromRegistry) return 'registry';
+    if (this.examplesExplicit) return 'folder';
+    return examples.listPackageFiles(this.examplesDir).length ? 'folder' : 'registry';
   }
 
   /**
-   * The rows of the "Load examples" sheet, read from the packages themselves (name, description, version, size, what they ask for)
-   * and, for the "What to allow" hint, from the folder's README.md when it has a line for the package. Reading a manifest is a few
-   * KiB per package; the full verification happens when the package is installed.
+   * {source, available, count, show, packaged, dir?}: is there anything to load, and does the UI offer it at all (src/examples.js
+   * infoOf). From the registry there is always something to try (it needs the internet, which the sheet says when it is not there).
+   */
+  examplesInfo() {
+    if (this.examplesSource() === 'registry') return { source: 'registry', available: true, count: 0, show: true, packaged: this.packaged };
+    return Object.assign({ source: 'folder' }, examples.infoOf(this.examplesDir, this.packaged));
+  }
+
+  /**
+   * The apps of the registry that are examples: those of the publisher whose domain the registry has verified (D9010 Inc), newest
+   * list as the registry gives it, by name. Anything else in the registry never appears, whatever it calls itself. Throws an Error
+   * with a plain message when the registry cannot be reached.
+   */
+  async _registryExamples() {
+    const registry = normalizeRegistryUrl(this.registryDefault || '');
+    if (!registry) throw new Error('This launcher has no registry to load examples from.');
+    const found = [];
+    let offset = 0;
+    try {
+      for (let page = 0; page < 6; page++) {
+        const r = await this.updates.browseRegistry(registry, { q: this.examplesDomain, sort: 'name', offset, deadlineMs: 10000 });
+        for (const it of r.items) if (examples.isOfficial(it, this.examplesDomain) && !found.some((f) => f.id === it.id)) found.push(it);
+        if (r.next === null || r.next === undefined) break;
+        offset = r.next;
+      }
+    } catch (e) {
+      throw new Error(`The sample apps come from the D9010 VmApp registry and it could not be reached: ${e && e.message ? e.message : e} “Install from file…” works without the internet.`);
+    }
+    return { registry, items: found };
+  }
+
+  /**
+   * The rows of the "Load examples" sheet. From the folder: read from the packages themselves (name, description, version, size, what
+   * they ask for) and, for the "What to allow" hint, from the folder's README.md when it has a line for the package; reading a
+   * manifest is a few KiB per package, the full verification happens when the package is installed. From the registry: what the
+   * registry says about each app of the verified publisher.
    */
   async examplesList() {
     const info = this.examplesInfo();
+    if (info.source === 'registry') {
+      const { items } = await this._registryExamples();
+      const deps = { currentVersion: (id) => this.store.currentVersion(id), hasRuntime: (rt) => this.store.hasRuntime(rt) };
+      return Object.assign({}, info, { count: items.length, items: items.map((it) => examples.describeRegistryExample(it, deps)) });
+    }
     const entries = examples.listPackageFiles(this.examplesDir);
     const readme = examples.readReadme(this.examplesDir);
     const deps = { currentVersion: (id) => this.store.currentVersion(id), hasRuntime: (rt) => this.store.hasRuntime(rt) };
@@ -153,23 +200,48 @@ class Library {
   async installExamples(names) {
     if (this.examplesBusy) throw new Error('The examples are already being installed.');
     if (!Array.isArray(names)) throw new Error('Choose at least one example.');
-    const here = new Map(examples.listPackageFiles(this.examplesDir).map((e) => [e.name, e]));
+    const fromRegistry = this.examplesSource() === 'registry';
+    let registry = null;
+    let here;
+    if (fromRegistry) {
+      // the names are app ids; each must be an app of the verified publisher the registry lists right now
+      const listed = await this._registryExamples();
+      registry = listed.registry;
+      here = new Map(listed.items.map((it) => [it.id, { name: it.id, id: it.id, version: it.latestVersion }]));
+    } else {
+      here = new Map(examples.listPackageFiles(this.examplesDir).map((e) => [e.name, e]));
+    }
     const entries = [];
     for (const n of names) {
       if (typeof n !== 'string' || !here.has(n)) throw new Error(`“${String(n).slice(0, 60)}” is not one of the examples.`);
       if (!entries.some((e) => e.name === n)) entries.push(here.get(n));
     }
     if (!entries.length) throw new Error('Choose at least one example.');
+    if (this.examplesBusy) throw new Error('The examples are already being installed.');
     this.examplesBusy = true;
     try {
-      const results = await examples.installExamples(entries, {
+      const deps = {
         verify: (file) => pkg.read(file),
         currentVersion: (id) => this.store.currentVersion(id),
         hasRuntime: (rt) => this.store.hasRuntime(rt),
         isRunning: (id) => this.runner.isActive(id),
         install: (file) => this._installFile(file),
         onProgress: (ev) => this._toLibrary('lib:examplesProgress', ev),
-      });
+      };
+      if (fromRegistry) {
+        // the same download and checks as every registry install (hostlib/updates.js fetchAndVerify); the app remembers the registry
+        // it came from, so that it updates from there like an app installed with Browse registry…
+        deps.prepare = async (e) => {
+          const versions = await this.updates.listRegistryVersions(e.id, { registry, deadlineMs: 10000 });
+          const wanted = newestInstallable(versions);
+          if (!wanted) throw new Error(versions.length ? 'Every version of this app has been withdrawn by its publisher.' : 'The registry has no version of this app.');
+          const prepared = await this.updates.fetchAndVerify(e.id, wanted, { registry });
+          return { file: prepared.file, manifest: prepared.manifest };
+        };
+        deps.release = (file) => this.updates.discard(file);
+        deps.install = (file) => this._installFile(file, { source: { registry } });
+      }
+      const results = await examples.installExamples(entries, deps);
       const counts = examples.countsOf(results);
       const text = examples.summaryText(counts);
       this.log('info', `examples: ${text}`);

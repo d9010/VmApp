@@ -99,7 +99,7 @@ tools/vmapp publish ~/Desktop/notes.vmapp --name "Your Name" --email you@example
 tools/vmapp search
 tools/vmapp get dev.vmapp.notes -o ~/Desktop/notes-from-registry.vmapp   # verifies the hash and the package id
 ```
-The web page shows "Unverified publisher" until you verify. The dev server writes verification emails to
+The web page shows no publisher until you verify. The dev server writes verification emails to
 `out/work/my-registry/outbox/*.eml`, and the page explains each level.
 
 To get an app from this registry into the loader without the terminal, choose **File → Browse registry…** (⇧⌘B; a development
@@ -110,8 +110,8 @@ file before anything is installed ([USING.md](USING.md#browse-and-install-from-a
 
 1. **The problem (1 min):** "Installing a desktop app means trusting it with all your files. Electron apps, and
    even container-backed ones, run vendor code on your machine with your rights."
-2. **Install an app** from the registry page: show the permission list *before* downloading, and the unverified
-   publisher label.
+2. **Install an app** from the registry page: show the permission list *before* downloading, and the publisher
+   (shown only when it is verified).
 3. **Install it in the loader:** the review screen, then Launch and the permission sheet. "It asks for exactly
    this folder, and I can say no."
 4. **Use it** (Notes): then open Activity Monitor and show the VM process. "Its code runs in there, not on my

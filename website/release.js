@@ -306,7 +306,7 @@ async function runRelease(opts, site, root) {
   const { exportRepo } = localConfig(root);
 
   say(`\n=== Release ${version} ===`);
-  if (!fs.existsSync(zip)) fail(`${zip} does not exist. Build it first: SIGN_IDENTITY=... tools/package-mac.sh --with-examples --examples-dir=<folder>, then tools/notarize-mac <profile> (docs/PRODUCTION.md).`);
+  if (!fs.existsSync(zip)) fail(`${zip} does not exist. Build it first: SIGN_IDENTITY=... tools/package-mac.sh, then tools/notarize-mac <profile> (docs/PRODUCTION.md).`);
   if (path.basename(zip) !== file) fail(`The zip must be named ${file} (it is ${path.basename(zip)}).`);
   const entry = changelogEntry(fs.readFileSync(path.join(vmapp, 'CHANGELOG.md'), 'utf8'), version);
   say(`Changelog: ${entry.bullets.length} change(s) dated ${entry.date}.`);

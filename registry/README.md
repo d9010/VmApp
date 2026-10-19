@@ -402,9 +402,9 @@ The registry shows **only verified facts**. What a publisher merely claims is st
 
 | Level | How | What the API and web UI show |
 |---|---|---|
-| `unverified` (default) | nothing | "Unverified publisher". Not the claimed name, company, URL or email, and **not** the manifest's own `publisher` string. |
+| `unverified` (default) | nothing | Nothing: the label is empty and the web UI shows no publisher at all. Not the claimed name, company, URL or email, and **not** the manifest's own `publisher` string. |
 | `email` | the publisher confirms a one-time link sent to its email | "Verified email @example.com": the domain of the address only. Never the full address, never the free-text name. |
-| `domain` | the publisher proves control of a domain | "Verified: example.com", plus the company name, plus the website **if its host is the verified domain or a subdomain of it**. Never the person's name. |
+| `domain` | the publisher proves control of a domain (the event says how: `file`, `dns`, or `operator`, when the registry's operator vouches for it) | "Verified: example.com", plus the company name, plus the website **if its host is the verified domain or a subdomain of it**. Never the person's name. |
 
 Consequences, all enforced by tests:
 

@@ -87,7 +87,7 @@ function newUpdates(t, over = {}) {
   return { store, updates: new Updates(store, over), dir: d };
 }
 
-const item = (over = {}) => Object.assign({ id: 'com.example.ok', name: 'Ok', publisher: { level: 'unverified', label: 'Unverified publisher' }, description: 'd', latestVersion: '1.0.0', runtime: 'node22', downloads: 3, sizeBytes: 100, permissionsSummary: 'none' }, over);
+const item = (over = {}) => Object.assign({ id: 'com.example.ok', name: 'Ok', publisher: { level: 'unverified', label: '' }, description: 'd', latestVersion: '1.0.0', runtime: 'node22', downloads: 3, sizeBytes: 100, permissionsSummary: 'none' }, over);
 
 // ------------------------------------------------------------------------------------------------ what a request asks for
 
@@ -143,7 +143,7 @@ test('a real registry: results come back as plain, cut-down data with the publis
   assert.equal(res.items.length, 4);
   for (const it of res.items) {
     assert.deepEqual(Object.keys(it).sort(), ITEM_KEYS, 'only the fixed fields survive');
-    assert.deepEqual(it.publisher, { level: 'unverified', label: 'Unverified publisher' }, 'the registry shows an unverified publisher as that, and the claimed name never appears');
+    assert.deepEqual(it.publisher, { level: 'unverified', label: '' }, 'the registry shows nothing for an unverified publisher, and the claimed name never appears');
     assert.equal(it.runtime, 'node22');
     assert.equal(it.downloads, 0);
     assert.ok(Number.isSafeInteger(it.sizeBytes) && it.sizeBytes > 1000);
@@ -202,6 +202,23 @@ test('a real registry: hostile names and descriptions stay text (markup characte
   assert.equal(h.name, HOSTILE_NAME, 'the name is returned as the text it is');
   assert.equal(h.description, '<script>alert(document.cookie)</script> "quoted" \'single\' & <b>bold</b> reversed text second line');
   assert.ok(!h.description.includes(RLO) && !/[\u0000-\u001f]/.test(h.description));
+});
+
+test('the company comes with a verified domain only, as plain capped text; an unverified publisher has nothing', () => {
+  const ask = browseParams({});
+  const out = cleanBrowseList({
+    total: 4,
+    items: [
+      item({ id: 'com.example.one', publisher: { level: 'domain', label: 'Verified: d9010.com', domain: 'd9010.com', company: 'D9010 Inc', url: 'https://d9010.com' } }),
+      item({ id: 'com.example.two', publisher: { level: 'domain', label: 'Verified: x.test', company: `C${'o'.repeat(500)}` } }),
+      item({ id: 'com.example.three', publisher: { level: 'email', label: 'Verified email @x.test', company: 'Claimed Inc' } }),
+      item({ id: 'com.example.four', publisher: { level: 'unverified', label: '', company: 'Claimed Inc' } }),
+    ],
+  }, 'http://r.example', ask).items;
+  assert.deepEqual(out[0].publisher, { level: 'domain', label: 'Verified: d9010.com', domain: 'd9010.com', company: 'D9010 Inc' }, 'only level, label, domain and company are kept');
+  assert.equal(out[1].publisher.company.length, 100, 'the company is capped');
+  assert.deepEqual(out[2].publisher, { level: 'email', label: 'Verified email @x.test' }, 'a company claimed without a verified domain is never kept');
+  assert.deepEqual(out[3].publisher, { level: 'unverified', label: '' }, 'nothing to show');
 });
 
 // ------------------------------------------------------------------------------------------------ answers a real registry would never send

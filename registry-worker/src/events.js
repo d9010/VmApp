@@ -34,6 +34,20 @@ const SCHEMA = [
      completes INTEGER NOT NULL DEFAULT 0,
      uploaded INTEGER NOT NULL DEFAULT 0
    )`,
+  // an upload larger than one request can carry goes to R2 as a multipart upload: the client sends it in parts (PUT ...?part=N)
+  // and `complete` assembles them. `mp_id` is R2's id of the multipart upload; the parts are kept here as {number, etag}.
+  `CREATE TABLE IF NOT EXISTS multiparts (
+     upload_id TEXT PRIMARY KEY,
+     mp_id TEXT NOT NULL,
+     part_size INTEGER NOT NULL,
+     count INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS mp_parts (
+     upload_id TEXT NOT NULL,
+     n INTEGER NOT NULL,
+     etag TEXT NOT NULL,
+     PRIMARY KEY (upload_id, n)
+   )`,
 ];
 
 export class SqlStore {
@@ -123,16 +137,42 @@ export class SqlStore {
 
   deleteUpload(id) {
     this.sql.exec('DELETE FROM uploads WHERE id = ?', id);
+    this.sql.exec('DELETE FROM multiparts WHERE upload_id = ?', id);
+    this.sql.exec('DELETE FROM mp_parts WHERE upload_id = ?', id);
   }
 
   countUploads() {
     return [...this.sql.exec('SELECT COUNT(*) AS n FROM uploads')][0].n;
   }
 
-  /** Removes the rows of expired uploads and returns their staging keys (the caller deletes the objects). */
+  /**
+   * Removes the rows of expired uploads and returns what the caller must clean up in R2: `{key, mpId}` for each, the staging
+   * object's key and, for a multipart upload, R2's id of it (null otherwise).
+   */
   expireUploads(nowMs) {
-    const rows = [...this.sql.exec('SELECT id, key FROM uploads WHERE expires_at < ?', nowMs)];
-    if (rows.length) this.sql.exec('DELETE FROM uploads WHERE expires_at < ?', nowMs);
-    return rows.map((r) => r.key);
+    const rows = [...this.sql.exec('SELECT u.id AS id, u.key AS key, m.mp_id AS mpId FROM uploads u LEFT JOIN multiparts m ON m.upload_id = u.id WHERE u.expires_at < ?', nowMs)];
+    for (const r of rows) this.deleteUpload(r.id);
+    return rows.map((r) => ({ key: r.key, mpId: r.mpId || null }));
+  }
+
+  // ---- multipart uploads ----
+  putMultipart(uploadId, mpId, partSize, count) {
+    this.sql.exec('INSERT INTO multiparts (upload_id, mp_id, part_size, count) VALUES (?, ?, ?, ?)', uploadId, mpId, partSize, count);
+  }
+
+  /** {mpId, partSize, count} of a multipart upload, or null for a single-request upload. */
+  getMultipart(uploadId) {
+    const rows = [...this.sql.exec('SELECT mp_id AS mpId, part_size AS partSize, count FROM multiparts WHERE upload_id = ?', uploadId)];
+    return rows[0] || null;
+  }
+
+  /** Remembers a part (a part sent again replaces the earlier one). */
+  putPart(uploadId, n, etag) {
+    this.sql.exec('INSERT OR REPLACE INTO mp_parts (upload_id, n, etag) VALUES (?, ?, ?)', uploadId, n, etag);
+  }
+
+  /** The parts received so far, in order, as R2 wants them for `complete`: [{partNumber, etag}]. */
+  getParts(uploadId) {
+    return [...this.sql.exec('SELECT n AS partNumber, etag FROM mp_parts WHERE upload_id = ? ORDER BY n', uploadId)];
   }
 }

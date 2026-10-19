@@ -33,9 +33,15 @@ Same as the Node registry ([../registry/README.md](../registry/README.md#api)): 
 Added: `PUT /api/uploads/:id` (where `init` tells the client to send the package), and the operator's
 `POST /api/admin/apps/:id/hide` and `/unhide` (with the `ADMIN_TOKEN` secret).
 
-Not yet: email and domain verification of publishers (they answer `501 not_supported`; they need a mailer and DNS lookups), the web pages
-(the website is the separate static site), and uploads larger than about 95 MiB (Cloudflare's proxy accepts at most 100 MB per request;
-bigger packages need an upload straight to R2, which needs an R2 API token; until then `init` answers `413 too_large_for_proxy`).
+**Large packages (over 95 MiB, up to `MAX_PACKAGE_MIB`, 512) go up in parts.** Cloudflare's proxy accepts at most 100 MB per request, so
+for such a package `init` answers with `parts: {size, count}` (parts of 32 MiB, the last one shorter) and the client sends part N as
+`PUT <url>?part=N` with exactly that many bytes (any order, a part can be sent again, up to 60 minutes after `init`). `complete` puts the
+parts together in R2 with the Worker's own R2 binding (a multipart upload; no R2 API token and no presigned URL are needed), then checks the
+package as for any other upload. The launcher's *Publish…* and `vmapp publish` do this by themselves. A client that does not know about
+parts gets a `400` that says so. Packages up to 95 MiB are unchanged: one `PUT`.
+
+Not yet: email and domain verification of publishers (they answer `501 not_supported`; they need a mailer and DNS lookups) and the web pages
+(the website is the separate static site).
 
 ## Run it locally (no Cloudflare account needed)
 

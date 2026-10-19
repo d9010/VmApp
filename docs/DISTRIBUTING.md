@@ -105,7 +105,7 @@ Users see **only what is verified**. What you type is not shown until it is back
 
 | You have done | Users see |
 |---|---|
-| nothing (the default) | **Unverified publisher**. Not your name, company, website or email, and not the `publisher` text in your manifest. |
+| nothing (the default) | **No publisher is shown.** Not your name, company, website or email, and not the `publisher` text in your manifest. |
 | confirmed your email | **Verified email @example.com**: the part after the `@`, nothing else. |
 | proven you control a domain | **Verified: example.com**, plus your **company name**, plus your **website** if it is on that domain (or a subdomain). |
 
@@ -175,8 +175,8 @@ Be clear about what each layer promises:
 
 - **The registry checks that a package is well formed. It does not vouch for the publisher.** It does not review code,
   scan for malware, or check that an app does what its description says. There is no moderation yet.
-- **The identity levels say who controls an email address or a domain**, nothing more. "Unverified publisher" is the
-  honest default, and the web pages say so.
+- **The identity levels say who controls an email address or a domain**, nothing more. An app with no
+  publisher shown is one nobody has vouched for; the registry shows names only when they are verified.
 - **You are protected whichever way you got the file**, because of how apps run:
   - the app's code runs in its own VM and sees only folders you grant, with the access you choose;
   - it has no network;

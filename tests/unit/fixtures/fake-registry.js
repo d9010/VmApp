@@ -15,6 +15,8 @@ const { pickCandidate } = require('../../../hostlib/updates');
 class FakeRegistry {
   constructor() {
     this.apps = new Map(); // id -> Map(version -> { buf, sha256, packageId, manifest, withdrawn })
+    this.publishers = new Map(); // id -> the publisher the list shows ({level, label, domain?, company?}); none: unverified
+    this.failList = false; // GET /api/apps answers 503
     this.log = [];
     this.noResolve = false;
     this.badResolve = null;
@@ -61,6 +63,21 @@ class FakeRegistry {
       res.end(body);
     };
     const err = (status, code, message) => json(status, { error: { code, message } });
+    if (u.pathname === '/api/apps') {
+      if (this.failList) return err(503, 'unavailable', 'the list is not available');
+      // the list (Browse registry…, Load examples): every app, by name; the search text is ignored. `publishers` says what the
+      // registry shows for an app's publisher (default: nothing, an unverified one).
+      const offset = Number(u.searchParams.get('offset') || 0);
+      const limit = Number(u.searchParams.get('limit') || 20);
+      const compare = require('../../../hostlib/manifest').compareVersions;
+      const items = [...this.apps.entries()].map(([id, versions]) => {
+        const live = [...versions.entries()].filter(([, e]) => !e.withdrawn).map(([v]) => v).sort(compare);
+        const latest = live.length ? live[live.length - 1] : [...versions.keys()].sort(compare).pop();
+        const e = versions.get(latest);
+        return { id, name: e.manifest.name, publisher: this.publishers.get(id) || { level: 'unverified', label: '' }, description: e.manifest.description || '', latestVersion: latest, runtime: e.manifest.runtime, downloads: 0, sizeBytes: e.buf.length, permissionsSummary: `${e.manifest.name} asks for little` };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      return json(200, { total: items.length, limit, offset, sort: 'name', q: '', items: items.slice(offset, offset + limit) });
+    }
     const m = /^\/api\/apps\/([^/]+)\/(versions|resolve|[^/]+\/download)$/.exec(u.pathname);
     if (!m) return err(404, 'not-found', 'no such route');
     const id = decodeURIComponent(m[1]);

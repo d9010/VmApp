@@ -63,8 +63,10 @@
 
   /** A small badge for a publisher view {level, label}: only verified facts are ever in it. */
   R.pubBadge = function (pub) {
-    var mark = pub.level === 'domain' ? '✓ ' : pub.level === 'email' ? '✉ ' : '';
-    return R.el('span', { class: 'pubbadge level-' + (pub.level === 'domain' || pub.level === 'email' ? pub.level : 'unverified'), text: mark + pub.label });
+    // an unverified publisher shows nothing: an empty string, which append() and R.el() both accept
+    if (pub.level !== 'domain' && pub.level !== 'email') return '';
+    var mark = pub.level === 'domain' ? '✓ ' : '✉ ';
+    return R.el('span', { class: 'pubbadge level-' + pub.level, text: mark + pub.label });
   };
 
   R.accessWords = { read: 'read the files in', readwrite: 'read and change files in', writeonly: 'save new files into' };

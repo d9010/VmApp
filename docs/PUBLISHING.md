@@ -102,6 +102,9 @@ lists `presigned`, `POST /api/publish/init` with `{"size": <bytes>, "sha256": "<
 file to the returned `url` (exactly `size` bytes, within 15 minutes), then `POST /api/publish/complete` with `{"uploadId": "…"}` and
 the same headers a direct publish uses (`Authorization`, or `X-Vmapp-Publisher` on a first publish). The answers are the same 201
 and error codes (plus `400 upload_missing` / `upload_mismatch`, `404 unknown_upload`, `409 upload_changed`).
+If the answer to `init` has `"parts": {"size": S, "count": N}`, the package is too large for one request: send it in N parts
+instead, part number K (1 to N) as `PUT <url>?part=K` with exactly S bytes (the last part has what is left), in any order and up to
+an hour after `init`, then `complete` as above. `vmapp publish` and the launcher's *Publish…* do this for you.
 
 **The agent's procedure** (copy into your agent's instructions):
 

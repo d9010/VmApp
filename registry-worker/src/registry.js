@@ -15,7 +15,7 @@ import { RateLimiter } from '../../registry/lib/ratelimit.js';
 import * as present from '../../registry/lib/present.js';
 import * as versionsLib from '../../registry/lib/versions.js';
 import { SORTS, queryApps } from '../../registry/lib/listing.js';
-import { ProfileError, parseProfile, parseProfileHeader, publicView } from '../../registry/lib/publisher.js';
+import { ProfileError, parseProfile, parseProfileHeader, publicView, normalizeDomain } from '../../registry/lib/publisher.js';
 import { SqlStore } from './events.js';
 import { HttpError, json, errorResponse, bearer, unauthorized, checkMethod, readJson, headersFor } from './http.js';
 import { verifyPackageStream, VerifyError } from './verify.js';
@@ -24,8 +24,30 @@ const MIB = 1024 * 1024;
 const UPLOAD_TTL_MS = 15 * 60 * 1000; // an upload id lives this long
 const MAX_PENDING_UPLOADS = 5000;
 const WORKER_UPLOAD_MAX = 95 * MIB; // Cloudflare's proxy accepts request bodies of at most 100 MB on the Free and Pro plans
+// A package larger than that is sent in parts of PART_SIZE (the last one is shorter), each in its own request, and R2 assembles
+// them (a multipart upload through the Worker's own R2 binding: no R2 API token, no presigned URL). R2 wants every part but the
+// last to have the same size, and at least 5 MiB. The upload id lives longer then, because a slow connection needs the time.
+const PART_SIZE = 32 * MIB;
+const MULTIPART_TTL_MS = 60 * 60 * 1000;
 const COUNTER_FLUSH_MS = 5 * 60 * 1000; // download counters are folded into the log at most this often
 const STAGING_MAX_AGE_MS = 2 * DAY_MS;
+
+/** Reads and discards what is left of a request body, up to one part and a little more; then stops listening. */
+async function drainBody(request) {
+  if (!request.body || request.bodyUsed) return;
+  let n = 0;
+  try {
+    const reader = request.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      n += value.length;
+      if (n > PART_SIZE + MIB) return void (await reader.cancel());
+    }
+  } catch {
+    /* the client went away: nothing to answer */
+  }
+}
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
 const validId = (s) => typeof s === 'string' && s.length >= 3 && s.length <= 100 && ID_RE.test(s);
@@ -111,7 +133,7 @@ export class Registry extends DurableObject {
     }
     if (seg[0] === 'uploads' && seg.length === 2) {
       checkMethod(request, ['PUT']);
-      return R(200, await this.receiveUpload(request, seg[1]));
+      return R(200, await this.receiveUpload(request, seg[1], url));
     }
     if (seg[0] === 'publisher') return this.publisherApi(request, seg);
     if (seg[0] === 'admin') return this.adminApi(request, seg);
@@ -262,8 +284,7 @@ export class Registry extends DurableObject {
   /** Folds the download counters into the log, and clears out expired and abandoned uploads. */
   async alarm() {
     this.store.flushCounters((fn) => this.ctx.storage.transactionSync(fn));
-    const expired = this.store.expireUploads(Date.now());
-    for (const k of expired) await this.env.PACKAGES.delete(k).catch(() => {});
+    for (const gone of this.store.expireUploads(Date.now())) await this.discardStaged(gone);
     // staging objects nobody completed (a client that never came back), older than two days
     let listed = await this.env.PACKAGES.list({ prefix: 'staging/', limit: 200 });
     for (const o of listed.objects) {
@@ -354,27 +375,106 @@ export class Registry extends DurableObject {
     if (!Number.isSafeInteger(size) || size < 1) throw new HttpError(400, 'bad_request', 'size must be the package size in bytes');
     if (size > this.maxPackageBytes) throw new HttpError(413, 'too_large', `package is larger than the limit of ${this.maxPackageBytes} bytes`);
     if (!/^[0-9a-f]{64}$/.test(sha256)) throw new HttpError(400, 'bad_request', 'sha256 must be the SHA-256 of the package in hex');
-    if (size > WORKER_UPLOAD_MAX) {
-      throw new HttpError(413, 'too_large_for_proxy', `this registry accepts uploads of at most ${Math.floor(WORKER_UPLOAD_MAX / MIB)} MiB for now; larger packages need direct-to-storage uploads, which are not enabled yet`);
-    }
-    for (const k of this.store.expireUploads(Date.now())) await this.env.PACKAGES.delete(k).catch(() => {});
+    for (const gone of this.store.expireUploads(Date.now())) await this.discardStaged(gone);
     if (this.store.countUploads() >= MAX_PENDING_UPLOADS) throw new HttpError(429, 'rate_limited', 'too many uploads are waiting; try again later', { 'Retry-After': '60' });
     const uploadId = crypto.randomUUID();
-    const expiresAt = Date.now() + UPLOAD_TTL_MS;
-    this.store.putUpload({ id: uploadId, size, sha256, key: stagingKey(uploadId), expiresAt });
+    const skey = stagingKey(uploadId);
+    const multipart = size > WORKER_UPLOAD_MAX;
+    const expiresAt = Date.now() + (multipart ? MULTIPART_TTL_MS : UPLOAD_TTL_MS);
     const origin = new URL(request.url).origin;
-    return { uploadId, method: 'PUT', url: `${origin}/api/uploads/${uploadId}`, headers: {}, expiresAt: new Date(expiresAt).toISOString(), size };
+    const answer = { uploadId, method: 'PUT', url: `${origin}/api/uploads/${uploadId}`, headers: {}, expiresAt: new Date(expiresAt).toISOString(), size };
+    if (multipart) {
+      let mp;
+      try {
+        mp = await this.env.PACKAGES.createMultipartUpload(skey);
+      } catch (e) {
+        console.error(`storage: cannot start a multipart upload: ${e.message}`);
+        throw new HttpError(502, 'storage_error', 'the upload could not be started; try again');
+      }
+      const count = Math.ceil(size / PART_SIZE);
+      this.ctx.storage.transactionSync(() => {
+        this.store.putUpload({ id: uploadId, size, sha256, key: skey, expiresAt });
+        this.store.putMultipart(uploadId, mp.uploadId, PART_SIZE, count);
+      });
+      // the client PUTs part N (1 to count) to `url?part=N`: every part is `size` bytes except the last, which is what is left
+      answer.parts = { size: PART_SIZE, count };
+    } else {
+      this.store.putUpload({ id: uploadId, size, sha256, key: skey, expiresAt });
+    }
+    return answer;
   }
 
-  /** PUT /api/uploads/:uploadId: the package bytes. The upload id (a random UUID) is the capability. */
-  async receiveUpload(request, uploadId) {
+  /** Throws away what an upload left in R2: its staging object and, for a multipart upload that was never assembled, its parts. */
+  async discardStaged({ key, mpId }) {
+    if (mpId) await this.env.PACKAGES.resumeMultipartUpload(key, mpId).abort().catch(() => {});
+    await this.env.PACKAGES.delete(key).catch(() => {});
+  }
+
+  /**
+   * PUT /api/uploads/:uploadId: the package bytes, or, for a multipart upload (init answered with `parts`), PUT ...?part=N with part
+   * N. A part can be sent again (a retry replaces it). The upload id (a random UUID) is the capability.
+   * When the request is refused, the rest of its body is read and thrown away (at most one part's worth) before the answer goes
+   * out: a client that is still sending would otherwise see a broken connection instead of the reason.
+   */
+  async receiveUpload(request, uploadId, url) {
+    try {
+      return await this.receiveUploadBody(request, uploadId, url);
+    } catch (e) {
+      if (e instanceof HttpError) await drainBody(request);
+      throw e;
+    }
+  }
+
+  async receiveUploadBody(request, uploadId, url) {
     const row = /^[0-9a-f-]{36}$/.test(uploadId) ? this.store.getUpload(uploadId) : null;
-    if (!row || Date.now() > row.expiresAt) throw new HttpError(404, 'unknown_upload', 'that upload is unknown or has expired (15 minutes); start again with POST /api/publish/init');
+    if (!row || Date.now() > row.expiresAt) throw new HttpError(404, 'unknown_upload', 'that upload is unknown or has expired; start again with POST /api/publish/init');
     const cl = request.headers.get('content-length');
-    if (cl === null || Number(cl) !== row.size) throw new HttpError(400, 'upload_mismatch', `send exactly the ${row.size} bytes announced in init (with a Content-Length header)`);
-    await this.putStaged(request, row.key, row.size);
+    const mp = this.store.getMultipart(row.id);
+    if (!mp) {
+      if (cl === null || Number(cl) !== row.size) throw new HttpError(400, 'upload_mismatch', `send exactly the ${row.size} bytes announced in init (with a Content-Length header)`);
+      await this.putStaged(request, row.key, row.size);
+      this.store.markUploaded(row.id);
+      return { uploaded: true, size: row.size };
+    }
+    const param = url.searchParams.get('part');
+    if (param === null) {
+      throw new HttpError(400, 'bad_request', `this package is larger than one request can carry: send it in ${mp.count} parts of ${mp.partSize} bytes (the last one is shorter), each as PUT <url>?part=N; update the launcher or the vmapp command if it does not do that`);
+    }
+    const n = /^[1-9]\d{0,4}$/.test(param) ? Number(param) : 0;
+    if (n < 1 || n > mp.count) throw new HttpError(400, 'bad_request', `the part number must be between 1 and ${mp.count}`);
+    if (row.uploaded) throw new HttpError(409, 'conflict', 'this upload was already assembled; call POST /api/publish/complete');
+    const len = n < mp.count ? mp.partSize : row.size - mp.partSize * (mp.count - 1);
+    if (cl === null || Number(cl) !== len) throw new HttpError(400, 'upload_mismatch', `part ${n} of ${mp.count} must be exactly ${len} bytes (with a Content-Length header)`);
+    const { readable, writable } = new FixedLengthStream(len);
+    const pump = request.body.pipeTo(writable);
+    let part;
+    try {
+      [part] = await Promise.all([this.env.PACKAGES.resumeMultipartUpload(row.key, mp.mpId).uploadPart(n, readable), pump]);
+    } catch (e) {
+      await pump.catch(() => {});
+      throw new HttpError(400, 'upload_aborted', `part ${n} failed: ${e.message}; send it again`);
+    }
+    this.store.putPart(row.id, n, part.etag);
+    return { uploaded: true, part: n, size: len, received: this.store.getParts(row.id).length, of: mp.count };
+  }
+
+  /** Puts the received parts together in R2 (once), so that `finishFromStaging` finds one object like after a single upload. */
+  async assembleParts(row) {
+    const mp = this.store.getMultipart(row.id);
+    if (!mp) throw new HttpError(400, 'upload_missing', 'nothing has been uploaded for this upload id: PUT the package to the URL first');
+    const parts = this.store.getParts(row.id);
+    if (parts.length !== mp.count) {
+      const have = new Set(parts.map((p) => p.partNumber));
+      const missing = [];
+      for (let i = 1; i <= mp.count; i++) if (!have.has(i)) missing.push(i);
+      throw new HttpError(400, 'upload_missing', `${parts.length} of ${mp.count} parts have been uploaded; still missing: ${missing.join(', ')}`);
+    }
+    try {
+      await this.env.PACKAGES.resumeMultipartUpload(row.key, mp.mpId).complete(parts);
+    } catch (e) {
+      throw new HttpError(400, 'upload_aborted', `the parts could not be put together: ${e.message}; start again with POST /api/publish/init`);
+    }
     this.store.markUploaded(row.id);
-    return { uploaded: true, size: row.size };
   }
 
   /** POST /api/publish/complete {uploadId}: verify what was uploaded, then publish it. */
@@ -384,10 +484,10 @@ export class Registry extends DurableObject {
     const profile = this.profileOf(request);
     const body = await readJson(request);
     const row = typeof body.uploadId === 'string' && /^[0-9a-f-]{36}$/.test(body.uploadId) ? this.store.getUpload(body.uploadId) : null;
-    if (!row || Date.now() > row.expiresAt) throw new HttpError(404, 'unknown_upload', 'that upload is unknown or has expired (15 minutes); start again with POST /api/publish/init');
+    if (!row || Date.now() > row.expiresAt) throw new HttpError(404, 'unknown_upload', 'that upload is unknown or has expired; start again with POST /api/publish/init');
     if (row.completes >= 5) throw new HttpError(429, 'rate_limited', 'this upload was checked too many times; start again with POST /api/publish/init');
     this.store.bumpCompletes(row.id);
-    if (!row.uploaded) throw new HttpError(400, 'upload_missing', 'nothing has been uploaded for this upload id: PUT the package to the URL first');
+    if (!row.uploaded) await this.assembleParts(row); // a single upload that never arrived is "upload_missing" too
     const result = await this.finishFromStaging({ skey: row.key, announced: { size: row.size, sha256: row.sha256 }, token, profile });
     this.store.deleteUpload(row.id);
     await this.env.PACKAGES.delete(row.key).catch(() => {});
@@ -583,6 +683,27 @@ export class Registry extends DurableObject {
         }
       });
       return json(request, 200, { id, hidden: !!this.db.getAppAny(id).hidden });
+    }
+    // The operator vouches for the publisher of an app: it becomes a verified publisher of the domain (the log says "operator",
+    // not "file" or "dns", because nobody checked a file or a DNS record). The company the publisher entered is then shown with it.
+    if (seg.length === 4 && seg[1] === 'apps' && seg[3] === 'verify-publisher') {
+      checkMethod(request, ['POST']);
+      const id = this.parseId(seg[2]);
+      const app = this.db.getAppAny(id);
+      if (!app) throw new HttpError(404, 'not_found', `no app "${id}"`);
+      const body = await readJson(request);
+      let domain;
+      try {
+        domain = normalizeDomain(body.domain);
+      } catch (e) {
+        throw new HttpError(400, 'bad_request', e.message);
+      }
+      const publisherId = app.publisherId;
+      await this.exclusive(async () => {
+        const pub = this.db.getPublisher(publisherId);
+        if (!pub.domain || pub.domain.name !== domain) this.store.append('publisher.verified', 'admin', { id: publisherId, kind: 'domain', name: domain, method: 'operator' });
+      });
+      return json(request, 200, { id, publisher: publicView(this.db.getPublisher(publisherId)) });
     }
     throw new HttpError(404, 'not_found', 'no such API endpoint');
   }

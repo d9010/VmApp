@@ -388,6 +388,11 @@ async function main() {
     step('ALL PASSED (run K only)');
     return;
   }
+  if (process.env.CDP_ONLY === 'KR') {
+    await runKR();
+    step('ALL PASSED (run KR only)');
+    return;
+  }
   if (process.env.CDP_ONLY === 'L') {
     await runL();
     step('ALL PASSED (run L only)');
@@ -929,6 +934,7 @@ async function main() {
   await runI();
   await runJ();
   await runK();
+  await runKR();
   await runL();
   await runM();
   await runW();
@@ -3979,6 +3985,104 @@ async function runK() {
   step('run K passed');
 }
 
+// =============================================================================================== run KR: Load examples from the registry
+// The released launcher carries no sample apps: "Load examples" lists the apps of the publisher whose DOMAIN the registry verified and
+// installs them like any registry install. The registry here is the in-process stand-in (tests/unit/fixtures/fake-registry.js); the
+// dev-only VMAPP_EXAMPLES_FROM=registry makes this dev launcher use it whatever its examples folder holds. No VM is started.
+async function runKR() {
+  step('run KR: Load examples from the registry (the list, a registry that does not answer, install, nothing granted)');
+  const { FakeRegistry } = require(path.join(VMAPP, 'tests', 'unit', 'fixtures', 'fake-registry.js'));
+  const homeKR = path.join(ROOT, 'home-kr');
+  const projRoot = path.join(ROOT, 'kr-proj');
+  const reg = new FakeRegistry();
+  await reg.start();
+  const OFFICIAL = { level: 'domain', label: 'Verified: d9010.com', domain: 'd9010.com', company: 'D9010 Inc' };
+  const app = (id, name) => ({
+    format: 1, id, name, version: '1.0.0', publisher: 'Claimed Inc.', description: `${name}: a fixture app of the loader test (run KR).`, runtime: 'node22',
+    core: { command: ['node', 'main.js'], workdir: '/app', memoryMiB: 256, cpus: 1 }, ui: { root: 'ui' }, permissions: { folders: [], dialogs: false, external: false },
+  });
+  const fixtures = [['com.vmapp.exr.alpha', 'Alpha Sample', OFFICIAL], ['com.vmapp.exr.beta', 'Beta Sample', OFFICIAL], ['com.vmapp.exr.rogue', 'Rogue Sample', null]];
+  for (const [id, name, publisher] of fixtures) {
+    const proj = path.join(projRoot, id);
+    fs.mkdirSync(path.join(proj, 'ui'), { recursive: true });
+    fs.mkdirSync(path.join(proj, 'core'), { recursive: true });
+    fs.writeFileSync(path.join(proj, 'vmapp.json'), JSON.stringify(app(id, name), null, 2));
+    fs.writeFileSync(path.join(proj, 'ui', 'index.html'), `<!doctype html><title>${name}</title>\n`);
+    fs.writeFileSync(path.join(proj, 'core', 'main.js'), "console.log('fixture');\n");
+    const file = path.join(projRoot, `${id}.vmapp`);
+    hostlib.pack(proj, file);
+    reg.publish(file);
+    if (publisher) reg.publishers.set(id, publisher);
+  }
+  const L = startLoader({ home: homeKR, name: 'loader-KR', env: { VMAPP_EXAMPLES_FROM: 'registry', VMAPP_REGISTRY: reg.url } });
+  const lib = await waitTarget(isLibrary, 'library (KR)');
+  const banners = () => lib.eval(`[...document.querySelectorAll('#banners .banner')].map((b) => b.className + ': ' + b.textContent)`);
+  const rows = () =>
+    lib.eval(`[...document.querySelectorAll('[data-example]')].map((r) => {
+      const t = (sel) => { const e = r.querySelector(sel); return e ? e.textContent : null; };
+      const allow = r.querySelector('[data-role="example-allow"]');
+      return { file: r.dataset.example, result: r.dataset.result || null, name: t('[data-role="example-name"]'), version: t('[data-role="example-version"]'), size: t('[data-role="example-size"]'),
+        desc: t('[data-role="example-desc"]'), allow: allow ? allow.textContent : null, allowFrom: allow ? allow.dataset.from : null, allowKey: t('[data-role="example-allow-row"] .k'), status: t('[data-role="example-status"]'), checked: r.querySelector('[data-role="example-check"]').checked };
+    })`);
+
+  step('KR: the empty library offers “Load examples” without any hint about a folder');
+  await waitSel(lib, '[data-role="empty"] [data-action="load-examples"]', 'empty library (KR)');
+  assert.match(await text(lib, '[data-role="empty"]'), /Choose “Load examples” to try the sample apps, or “Install from file…” to add a \.vmapp package\./);
+  assert.equal(await exists(lib, '[data-role="examples-missing-hint"]'), false);
+
+  step('KR: a registry that does not answer: a plain sentence in a banner, and “Install from file…” is named as the way around it');
+  reg.failList = true;
+  await click(lib, '[data-action="load-examples"]');
+  await waitFor(async () => (await banners()).some((b) => /^banner error/.test(b)), { what: 'an error banner (KR)' });
+  const msg = (await banners()).find((b) => /^banner error/.test(b));
+  assert.match(msg, /sample apps come from the D9010 VmApp registry and it could not be reached/);
+  assert.match(msg, /Install from file/);
+  assert.equal(await exists(lib, '[data-role="examples"]'), false, 'no sheet');
+  reg.failList = false;
+  await lib.eval(`document.querySelectorAll('#banners .banner').forEach((b) => b.remove())`);
+
+  step('KR: the sheet lists the apps of the verified publisher only, with the registry’s words');
+  await click(lib, '[data-action="load-examples"]');
+  await waitSel(lib, '[data-role="examples"]', 'Load examples sheet (KR)');
+  await waitFor(async () => (await rows()).length === 2, { what: 'two rows: the unverified app is not an example' });
+  assert.match(await text(lib, '[data-role="examples-intro"]'), /sample apps from the D9010 VmApp registry, published by D9010 Inc/);
+  const list = await rows();
+  assert.deepEqual(list.map((r) => [r.file, r.name, r.version]), [['com.vmapp.exr.alpha', 'Alpha Sample', '1.0.0'], ['com.vmapp.exr.beta', 'Beta Sample', '1.0.0']]);
+  assert.equal(list[0].desc, 'Alpha Sample: a fixture app of the loader test (run KR).');
+  assert.deepEqual([list[0].allowKey, list[0].allowFrom, list[0].allow], ['Asks for: ', 'registry', 'Alpha Sample asks for little']);
+  assert.match(list[0].size, /^\d+(\.\d)? KiB$/);
+  assert.ok(list.every((r) => r.checked), 'all chosen to begin with');
+  assert.ok(!(await text(lib, '[data-role="examples"]')).includes('Rogue'), 'the app of an unverified publisher is not there');
+  assert.ok(!(await text(lib, '[data-role="examples"]')).includes('Claimed Inc.'), 'what a package claims about its publisher is not shown');
+  await shot2x(lib, 'examples-from-registry');
+
+  step('KR: install: downloaded and verified, installed with the registry remembered, nothing granted');
+  await click(lib, '[data-action="examples-install"]');
+  await waitSel(lib, '[data-action="examples-done"]', 'the install is done (KR)', 60000);
+  assert.deepEqual((await rows()).map((r) => [r.file, r.result]), [['com.vmapp.exr.alpha', 'installed'], ['com.vmapp.exr.beta', 'installed']]);
+  assert.match(await text(lib, '[data-role="examples-summary"]'), /^Installed 2 apps\.$/);
+  for (const id of ['com.vmapp.exr.alpha', 'com.vmapp.exr.beta']) assert.equal(fs.readFileSync(path.join(homeKR, 'apps', id, 'current'), 'utf8').trim(), '1.0.0');
+  assert.ok(!fs.existsSync(path.join(homeKR, 'apps', 'com.vmapp.exr.rogue')), 'the unverified app was not installed');
+  assert.ok(reg.log.some((l) => /\/com\.vmapp\.exr\.alpha\/1\.0\.0\/download$/.test(l.url)), 'it came from the registry');
+  const grantsDir = path.join(homeKR, 'grants');
+  assert.deepEqual(fs.existsSync(grantsDir) ? fs.readdirSync(grantsDir) : [], [], 'nothing granted');
+  assert.deepEqual(fs.existsSync(path.join(homeKR, 'tmp')) ? fs.readdirSync(path.join(homeKR, 'tmp')) : [], [], 'the downloads were deleted');
+  await click(lib, '[data-action="examples-done"]');
+  await waitFor(async () => !(await exists(lib, '.sheet')), { what: 'sheet closed (KR)' });
+  await waitSel(lib, '[data-app="com.vmapp.exr.alpha"]', 'the installed app’s card');
+  const cardText = await text(lib, '[data-app="com.vmapp.exr.alpha"]');
+  assert.ok(!/nverified/.test(cardText), 'no “unverified” on the card');
+  assert.ok(!cardText.includes('Claimed Inc.'), 'the publisher a package claims is not shown on the card');
+
+  step('KR: quit cleanly; no VM was ever started');
+  assert.equal(testVms(homeKR).length, 0);
+  dropConns();
+  await killLoader(L, 'SIGTERM', 30000);
+  await reg.stop();
+  assert.ok(!fs.readFileSync(path.join(ROOT, 'loader-KR.log'), 'utf8').includes('unhandled rejection'), 'no unhandled rejection in the loader log');
+  step('run KR passed');
+}
+
 // =============================================================================================== run L: Browse registry
 // "Browse registry…" (library button and File menu) through the REAL library UI against a REAL registry (registry/lib/registry.js, started
 // here on port 0 with its data under $VMAPP_WORK, the way tests/registry does). The registry's own request log is what proves how often
@@ -4037,7 +4141,7 @@ async function runL() {
   const LONGVER = `1.0.0-rc${'9'.repeat(50)}`;
   const LONGDESC = 'D'.repeat(480);
 
-  // the first publisher verifies its email: the registry then shows "Verified email @verified.test" instead of "Unverified publisher"
+  // the first publisher verifies its email: the registry then shows "Verified email @verified.test" instead of nothing
   const notesM = base(`${PRE}.notes`, 'Browse Notes', '1.0.0', {
     description: 'Takes notes. Reads one folder, reaches one internet address and can listen.',
     permissions: {
@@ -4175,7 +4279,8 @@ async function runL() {
   assert.equal(notes.hasInstall, true);
   assert.equal(notes.installed, null);
   const filler = await cardInfo(`${PRE}.filler01`);
-  assert.deepEqual([filler.publisher, filler.level], ['Unverified publisher', 'unverified'], 'an unverified publisher is shown as that, never by the name it claims');
+  assert.deepEqual([filler.publisher, filler.level], [null, null], 'an unverified publisher shows nothing: no chip, and never the name it claims');
+  assert.ok(!(await lib.eval(`document.querySelector('${SEL('browse')}').textContent`)).includes('nverified'), 'the word is not on the sheet');
   assert.ok(!JSON.stringify(await lib.eval(`document.querySelector('${SEL('browse')}').textContent`)).includes('Claimed Publisher'), 'the publisher’s own claimed name appears nowhere');
   assert.equal(await lib.eval(`document.querySelectorAll('.bicon').length`), 25, 'every card has the placeholder icon');
 

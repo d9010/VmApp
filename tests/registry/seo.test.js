@@ -139,7 +139,8 @@ test('home page: complete HTML without running any script, with title, descripti
   // the list, in the API's default order (the downloaded app first), as plain markup
   assert.deepEqual(listIds(doc), ['com.example.alpha', 'com.example.beta']);
   assert.match(doc, /<div class="title"><a href="\/apps\/com\.example\.alpha">Alpha<\/a><span class="ver">v1\.0\.0<\/span><\/div>/);
-  assert.match(doc, /<span class="pubbadge level-unverified">Unverified publisher<\/span><span>com\.example\.alpha<\/span>/);
+  assert.match(doc, /<p class="meta"><span>com\.example\.alpha<\/span>/, 'no publisher badge for an unverified publisher');
+  assert.doesNotMatch(doc, /nverified/);
   assert.match(doc, /<p>Alpha does alpha things\.<\/p>/);
   assert.match(doc, /<span>1 download<\/span><span>[\d.]+ KiB<\/span><span>node22<\/span><span>updated 2026-03-01<\/span>/);
   assert.match(doc, /<span>Asks for: folder &quot;docs&quot; \(read only\), file open\/save dialogs<\/span>/);
@@ -240,7 +241,8 @@ test('app page: details, permissions, versions and the tags, all in the HTML', a
 
   // the name, the version that is offered (2.0.0 is withdrawn: 1.1.0), the publisher by the display rule
   assert.match(main, /<h1>Alpha<span class="muted">  v1\.1\.0<\/span><\/h1>/);
-  assert.match(main, /<p class="publisher"><span class="pubbadge level-unverified">Unverified publisher<\/span> <span class="muted">Nobody has confirmed who made this app\.<\/span><\/p>/);
+  assert.doesNotMatch(main, /class="publisher"/, 'an unverified publisher shows nothing');
+  assert.doesNotMatch(main, /nverified|Nobody has confirmed/);
   for (const claim of ['Jane Doe', 'Acme Co', 'jane@acme.test', 'acme.test', 'Fixture Alpha Inc.']) assert.ok(!doc.includes(claim), `claim "${claim}" on the page`);
   assert.match(main, /<p>Alpha does alpha things\.<\/p>/);
   assert.match(main, /<a class="button" href="\/api\/apps\/com\.example\.alpha\/1\.1\.0\/download" rel="nofollow">Download v1\.1\.0 \([\d.]+ KiB\)<\/a>/);
@@ -341,9 +343,9 @@ test('the publisher follows the display rule in the page and in the JSON-LD; lin
   const post = (p, json) => call(s.url, `/api/publisher/${p}`, { method: 'POST', token, json: json || {} });
   const page = async () => (await call(s.url, '/apps/com.example.alpha')).text;
 
-  // unverified: a label, nothing claimed, no publisher in the JSON-LD
+  // unverified: nothing is shown, nothing claimed, no publisher in the JSON-LD
   let doc = await page();
-  assert.match(doc, /Unverified publisher/);
+  assert.doesNotMatch(doc, /nverified|class="publisher"/);
   for (const claim of ['Jane', 'jane@', 'acme.test', 'Fixture Inc.', HOSTILE_ESCAPED]) assert.ok(!doc.includes(claim), `claim "${claim}" on the page`);
   assert.equal(ldBlocks(doc)[0].publisher, undefined);
 

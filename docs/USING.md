@@ -44,8 +44,8 @@ The other way to get an app is **Install from file…**.
 2. The **newest apps** appear first. Type in the search box (it looks at an app's name, description and id, and at the
    publisher facts the registry has verified) and press **Search**. **Sort by** offers *Newest* (the default), *Most
    downloaded*, *Recently updated* and *Name (A to Z)*. **Show more** continues the list.
-3. Each card shows the app's name and id, the **publisher label exactly as the registry gives it** ("Unverified publisher",
-   "Verified email @example.com", "Verified: example.com"), a description, its version, size, download count and the registry's
+3. Each card shows the app's name and id, the **publisher exactly as the registry gives it** (nothing when it is not verified;
+   "Verified email @example.com", or the company with "Verified: example.com"), a description, its version, size, download count and the registry's
    summary of what it asks for. All of that is what the registry says; the loader shows it as given and **cannot check it**, so
    treat a publisher label as only as good as the registry. The list of what the app really asks for is the review in step 4.
 4. Click **Install** on a card. The loader downloads the package, checks it (its SHA-256 against what the registry announced, and
@@ -67,15 +67,17 @@ what you download can be changed on the way, so use it for development only.
 
 ## Try the examples
 
-The loader can come with a set of sample apps (a notes app, a hasher written in Rust, a .NET to-do list, a WebGPU particle
-demo, a terminal with Gemini CLI, a computer-use demo, local language models, Ollama's own desktop app, and more). To get them:
+D9010 Inc publishes a set of sample apps (a notes app, a hasher written in Rust, a .NET to-do list, a WebGPU particle
+demo, a terminal with Gemini CLI, a computer-use demo, local language models, Ollama's own desktop app, VS Code, and more) in the
+D9010 VmApp registry. The launcher lists them from there, so **Load examples needs the internet**; each app is downloaded
+and checked as it is installed and updates from the registry afterwards. To get them:
 
 1. **First launch:** with no apps installed, the library shows **Load examples** (and **Install from file…**). **Any time
    later:** choose **File → Load examples…** (⇧⌘E).
-2. The sheet lists every example as its own package describes itself: name, version, size and what it does, with badges
-   for the things it asks for: **Network** (the addresses), **GPU**, **Control of your computer** (screen, mouse and
-   keyboard, tools, MCP servers) and **Microphone**. Each has a **What to allow** hint: what is worth allowing in its
-   permission sheet when you first launch it. Every example starts checked; untick the ones you don't want.
+2. The sheet lists every example as the registry describes it: name, version, size and what it does, and **Asks for**: what
+   the app will ask you to allow when you first launch it (the permission sheet at that first launch is the list that counts).
+   Every example starts checked; untick the ones you don't want. (A build that carries the examples inside it shows them as
+   their packages describe themselves, with badges and a **What to allow** hint.)
 3. Click **Install selected**. Each app is verified and then installed, one after the other, and you see the progress
    of each. If one package is damaged or has been changed, the loader says so and installs the rest. An example whose
    version is already installed (or older than the one you have) is skipped, with a note, so you can run this again

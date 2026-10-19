@@ -242,6 +242,61 @@ function describeExample(entry, readme, deps) {
   });
 }
 
+// ---------------------------------------------------------------------------------------------- the registry as the source
+
+/**
+ * The sample apps can also come from the launcher's own registry instead of a folder: the apps of the publisher whose DOMAIN the
+ * registry has verified (D9010 Inc, d9010.com). That is the only thing that makes an app an example; a name, a description or a
+ * company that an app merely claims never does. The domain is a constant of the launcher (a dev launcher may name another one, for
+ * tests: src/config.js).
+ */
+const EXAMPLES_DOMAIN = 'd9010.com';
+
+/** Is this Browse item (hostlib/updates.js browseItem) an app of the verified publisher `domain`? */
+function isOfficial(item, domain = EXAMPLES_DOMAIN) {
+  const p = item && item.publisher;
+  return !!p && p.level === 'domain' && typeof p.domain === 'string' && p.domain.toLowerCase() === String(domain).toLowerCase();
+}
+
+/**
+ * One row of the sheet for a registry app, in the shape describeExample gives for a package: what the registry says (never what a
+ * package says) and how it relates to what is installed. `file` is the app id: the page names examples by it. `allow` is the
+ * registry's own words for what the app asks for; the list that counts is the one the app shows at its first launch.
+ */
+function describeRegistryExample(item, deps) {
+  let installed = null;
+  try {
+    installed = deps.currentVersion(item.id);
+  } catch {
+    installed = null; // a damaged installation is shown by its card; here it is just "not installed"
+  }
+  let runtimeMissing = false;
+  if (item.runtime) {
+    try {
+      runtimeMissing = !deps.hasRuntime(item.runtime);
+    } catch {
+      runtimeMissing = true;
+    }
+  }
+  const size = item.sizeBytes === null || item.sizeBytes === undefined ? 0 : item.sizeBytes;
+  return {
+    file: item.id,
+    id: item.id,
+    name: item.name,
+    version: item.latestVersion,
+    publisher: item.publisher && item.publisher.company ? item.publisher.company : '',
+    description: item.description || '',
+    size,
+    sizeText: size ? fmtSize(size) : '',
+    badges: [],
+    allow: item.permissionsSummary || '',
+    allowFrom: 'registry',
+    status: statusOf({ version: item.latestVersion }, installed),
+    runtime: item.runtime || '',
+    runtimeMissing,
+  };
+}
+
 // ---------------------------------------------------------------------------------------------- installing
 
 const tick = () => new Promise((r) => setImmediate(r));
@@ -253,8 +308,12 @@ const tick = () => new Promise((r) => setImmediate(r));
  *   deps.currentVersion(id)      the installed version or null
  *   deps.hasRuntime(name)        is the runtime image installed
  *   deps.isRunning(id)           an app that runs cannot be replaced
- *   deps.install(file)           THE install path (Library._installFile: verify again, Store.install); returns {id, version, previous}
- *   deps.onProgress(ev)          {file, phase: 'verifying'|'installing'|'installed'|'updated'|'skipped'|'failed', ...}
+ *   deps.install(file, entry)    THE install path (Library._installFile: verify again, Store.install); returns {id, version, previous}
+ *   deps.prepare(entry)          only for a registry example (entry = {name, id, version}): downloads it and checks it (hostlib/updates.js
+ *                                fetchAndVerify); returns {file, manifest}. An example whose listed version is installed already, or
+ *                                older than the installed one, is skipped before anything is downloaded.
+ *   deps.release(file)           deletes the downloaded file (always called after a prepare, whatever happened)
+ *   deps.onProgress(ev)          {file, phase: 'downloading'|'verifying'|'installing'|'installed'|'updated'|'skipped'|'failed', ...}
  * Skips (with a note) a package whose version is already installed or older than the installed one. Returns the results
  * [{file, status: 'installed'|'updated'|'skipped'|'failed', name?, id?, version?, previous?, note?, error?, step?}] in order.
  */
@@ -278,10 +337,29 @@ async function installExamples(entries, deps) {
   for (const e of entries) {
     let name = e.name;
     let step = 'verify';
+    let file = e.file;
+    let downloaded = false;
     try {
+      let p;
+      if (deps.prepare) {
+        // a registry example: what the list says is installed already is skipped without a download
+        const listed = statusOf({ version: e.version }, deps.currentVersion(e.id));
+        if (listed.kind === 'same' || listed.kind === 'older') {
+          emit({ file: e.name, status: 'skipped', name, id: e.id, version: e.version, note: listed.kind === 'same' ? `Version ${listed.installed} is already installed.` : `A newer version (${listed.installed}) is installed.` });
+          continue;
+        }
+        step = 'download';
+        phase(e.name, 'downloading', name);
+        await tick();
+        downloaded = true; // from here the file (if it exists) is ours to delete
+        const got = await deps.prepare(e);
+        file = got.file;
+        p = { manifest: got.manifest }; // the download already passed the full verification
+        step = 'verify';
+      }
       phase(e.name, 'verifying', name);
       await tick();
-      const p = deps.verify(e.file);
+      if (!p) p = deps.verify(file);
       const m = p.manifest;
       name = m.name;
       const st = statusOf(m, deps.currentVersion(m.id));
@@ -298,10 +376,18 @@ async function installExamples(entries, deps) {
       if (deps.isRunning(m.id)) throw new Error('Stop the app first.');
       phase(e.name, 'installing', name);
       await tick();
-      const r = deps.install(e.file);
+      const r = deps.install(file, e);
       emit({ file: e.name, status: st.kind === 'update' ? 'updated' : 'installed', name, id: r.id, version: r.version, previous: st.kind === 'update' ? st.installed : null });
     } catch (err) {
       emit({ file: e.name, status: 'failed', name, step, error: err && err.message ? String(err.message) : String(err) });
+    } finally {
+      if (downloaded && file && deps.release) {
+        try {
+          deps.release(file);
+        } catch {
+          /* a leftover temp file is swept at the next start */
+        }
+      }
     }
   }
   return results;
@@ -340,6 +426,9 @@ module.exports = {
   deriveAllow,
   statusOf,
   describeExample,
+  EXAMPLES_DOMAIN,
+  isOfficial,
+  describeRegistryExample,
   installExamples,
   countsOf,
   summaryText,

@@ -64,6 +64,12 @@ function resolveConfig(isPackaged) {
     // `tools/package-mac.sh --with-examples`, copied into the bundle. A dev loader may read another folder (the loader test does);
     // a packaged one reads only the folder inside its own bundle.
     examplesDir: override('VMAPP_EXAMPLES_DIR') ? path.resolve(override('VMAPP_EXAMPLES_DIR')) : path.join(binDir, 'examples'),
+    // A launcher without that folder (the released one carries no samples) lists the sample apps from its registry instead: the apps of
+    // the publisher whose domain the registry has verified (src/examples.js). A dev launcher can force the folder (an explicit
+    // VMAPP_EXAMPLES_DIR, even an empty one) or name another verified domain (VMAPP_EXAMPLES_DOMAIN); a packaged one ignores both.
+    examplesExplicit: !!override('VMAPP_EXAMPLES_DIR'),
+    examplesFromRegistry: override('VMAPP_EXAMPLES_FROM') === 'registry', // dev only: use the registry even when there is a folder
+    examplesDomain: override('VMAPP_EXAMPLES_DOMAIN') || 'd9010.com',
     uiDir: path.resolve(__dirname, '..', 'ui'),
     preloadLoader: path.resolve(__dirname, '..', 'preload-loader.js'),
     preloadApp: path.resolve(__dirname, '..', 'preload-app.js'),

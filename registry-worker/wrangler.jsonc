@@ -13,7 +13,9 @@
   "r2_buckets": [{ "binding": "PACKAGES", "bucket_name": "vmapp-packages" }],
   "vars": {
     "PUBLIC_URL": "https://api.vmapp.dev",
-    "MAX_PACKAGE_MIB": "512"
+    "MAX_PACKAGE_MIB": "512",
+    // publishes (init or direct) per hour from one address; each of the 14 sample apps is one, and they are published together
+    "PUBLISH_PER_HOUR": "40"
   },
   // api.vmapp.dev: a Workers custom domain on the vmapp.dev zone (the DNS record and the certificate are created on deploy)
   "routes": [{ "pattern": "api.vmapp.dev", "custom_domain": true }],

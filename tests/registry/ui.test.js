@@ -165,7 +165,7 @@ test('hostile manifest text only ever becomes text in the list and app pages', a
   assert.match(api.headers.get('content-type'), /^application\/json/);
   assert.equal(api.json.name, EVIL.name);
   assert.equal(api.json.permissions.folders[0].purpose, '<svg onload=alert(3)> why');
-  assert.deepEqual(api.json.publisher, { level: 'unverified', label: 'Unverified publisher' });
+  assert.deepEqual(api.json.publisher, { level: 'unverified', label: '' });
 
   // home page
   const home = runPage(s.url, { pathname: '/', ids: ['list', 'status', 'more', 'q', 'search', 'stats'], scripts: ['common.js', 'home.js'] });
@@ -177,7 +177,7 @@ test('hostile manifest text only ever becomes text in the list and app pages', a
   assert.ok(texts.includes(EVIL.description));
   assert.ok(!texts.some((x) => x.includes('Mallory')), 'the manifest publisher string is not rendered');
   assert.ok(!texts.some((x) => x.includes('Jane') || x.includes('Evil Co')), 'unverified claims are not rendered');
-  assert.ok(texts.includes('Unverified publisher'));
+  assert.ok(!texts.some((x) => /nverified/.test(x)), 'an unverified publisher shows nothing');
   for (const n of all(list)) {
     assert.ok(ALLOWED_TAGS.has(n.tagName), `unexpected element <${n.tagName}> created from data`);
     if (n.tagName === 'a') assert.match(n.attrs.href, /^\/apps\/com\.example\.evil$/);
@@ -194,7 +194,7 @@ test('hostile manifest text only ever becomes text in the list and app pages', a
   assert.ok(ptexts.includes('This app will ask for:'));
   assert.ok(ptexts.includes('vmapp get com.example.evil --install'));
   assert.ok(!ptexts.some((x) => x.includes('Mallory') || x.includes('Jane') || x.includes('Evil Co')), 'only verified facts are rendered');
-  assert.ok(ptexts.some((x) => /^Unverified publisher$/.test(x)));
+  assert.ok(!ptexts.some((x) => /nverified|Nobody has confirmed/.test(x)), 'an unverified publisher shows nothing');
   assert.equal(page.document.title, `${EVIL.name} - D9010 VmApp Registry`);
   for (const n of all(root)) {
     assert.ok(ALLOWED_TAGS.has(n.tagName), `unexpected element <${n.tagName}> created from data`);
@@ -363,7 +363,7 @@ test('publish page: shows the owner token once, in a field, with a save-it-now w
   const calls = [];
   const fetchImpl = async (p, init) => {
     calls.push({ p, init });
-    return { ok: true, status: 201, text: async () => JSON.stringify({ id: 'com.example.x', version: '1.0.0', packageId: 'f'.repeat(64), ownerToken: token, publisher: { level: 'unverified', label: 'Unverified publisher' } }) };
+    return { ok: true, status: 201, text: async () => JSON.stringify({ id: 'com.example.x', version: '1.0.0', packageId: 'f'.repeat(64), ownerToken: token, publisher: { level: 'unverified', label: '' } }) };
   };
   const page = runPage('http://unused', { pathname: '/publish', ids, scripts: ['common.js', 'publish.js'], fetchImpl });
   page.nodes.file.files = [{ name: 'x.vmapp', size: 1234 }];

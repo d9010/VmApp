@@ -381,8 +381,8 @@ function card(a) {
         'div',
         { class: 'titles' },
         h('div', { class: 'name' }, a.name, h('span', { class: 'version' }, a.version)),
-        // The manifest's publisher is the package's own claim; it stays labelled until publisher signatures exist.
-        h('div', { class: 'muted', title: 'Stated by the package, not verified' }, a.publisher ? `${a.publisher} (unverified)` : 'unknown publisher'),
+        // The manifest's publisher is only the package's own claim, so the card does not show it (the registry's rule too: only a
+        // verified publisher is ever shown, in Browse registry…). The install review shows the claim, as a claim.
       ),
       h('div', { class: 'state', dataset: { role: 'state' } }, h('span', { class: 'dot' }), h('span', {}, stateText)),
     ),
@@ -447,7 +447,9 @@ function emptyState() {
     'div',
     { class: 'empty', dataset: { role: 'empty' } },
     h('div', { class: 'empty-title' }, 'No apps installed yet.'),
-    h('div', { class: 'empty-text' }, ex.show ? 'Choose “Load examples” to try the sample apps that came with this loader, or “Install from file…” to add a .vmapp package.' : 'Choose “Install from file…” to add a .vmapp package.'),
+    h('div', { class: 'empty-text' }, ex.show
+      ? (ex.source === 'registry' ? 'Choose “Load examples” to try the sample apps, or “Install from file…” to add a .vmapp package.' : 'Choose “Load examples” to try the sample apps that came with this loader, or “Install from file…” to add a .vmapp package.')
+      : 'Choose “Install from file…” to add a .vmapp package.'),
     h(
       'div',
       { class: 'empty-actions' },
@@ -732,10 +734,13 @@ let browseSeq = 0; // a newer request (from this sheet or a later one) makes the
 const browseBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MiB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${n} B`);
 const browseCount = (n, one, many) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-/** The publisher exactly as the registry presents it: its label, styled by its level. Nothing is added or worked out here. */
+/**
+ * The publisher exactly as the registry presents it: its label (with the company, which the registry sends for a verified domain
+ * only), styled by its level. Nothing is added or worked out here. A publisher the registry shows nothing for (unverified) has no chip.
+ */
 function browsePublisher(p) {
-  if (!p.label) return h('span', { class: 'chip', title: PUBLISHER_NOTE, dataset: { role: 'browse-publisher', level: p.level } }, 'The registry gave no publisher label');
-  return h('span', { class: `chip pub-${p.level}`, title: PUBLISHER_NOTE, dataset: { role: 'browse-publisher', level: p.level } }, p.label);
+  if (!p.label) return null;
+  return h('span', { class: `chip pub-${p.level}`, title: PUBLISHER_NOTE, dataset: { role: 'browse-publisher', level: p.level } }, p.company ? `${p.company} · ${p.label}` : p.label);
 }
 
 /** One result. `install(item, note)` runs the verified install path; an app already on this Mac has no Install button. */
@@ -1710,7 +1715,7 @@ function showReview(r, { done } = {}) {
       'div',
       { class: 'kv', dataset: { role: 'review' } },
       kv('Name', `${m.name} ${m.version}`),
-      kv('Publisher', m.publisher ? `${m.publisher} (stated by the package, not verified)` : 'unknown'),
+      kv('Publisher', m.publisher ? `${m.publisher} (as the package states it)` : 'not stated'),
       kv('Description', m.description || '—'),
       kv('App id', m.id, 'mono'),
       kv('Package id', rev.packageId, 'mono'),
@@ -1787,6 +1792,7 @@ function exampleNote(it) {
 /** The same row after the install touched it. `ev` = {phase|status, version?, previous?, note?, error?, step?}. */
 function exampleResultNote(ev) {
   const p = ev.phase || ev.status;
+  if (p === 'downloading') return { text: 'Downloading…', cls: 'busy' };
   if (p === 'verifying') return { text: 'Verifying…', cls: 'busy' };
   if (p === 'installing') return { text: 'Installing…', cls: 'busy' };
   if (p === 'installed') return { text: `Installed ${ev.version}`, cls: 'ok' };
@@ -1861,12 +1867,12 @@ function openExamplesSheet(data) {
     const row = h(
       'div',
       { class: `exrow${ok ? '' : ' unavailable'}`, dataset: { example: it.file, state: it.error ? 'unreadable' : it.status ? it.status.kind : '' } },
-      h('label', { class: 'exhead' }, box, h('span', { class: 'exname', dataset: { role: 'example-name' } }, it.name), it.version ? h('span', { class: 'version', dataset: { role: 'example-version' } }, it.version) : null, h('span', { class: 'badge', dataset: { role: 'example-size' }, title: it.file }, it.sizeText)),
+      h('label', { class: 'exhead' }, box, h('span', { class: 'exname', dataset: { role: 'example-name' } }, it.name), it.version ? h('span', { class: 'version', dataset: { role: 'example-version' } }, it.version) : null, it.sizeText ? h('span', { class: 'badge', dataset: { role: 'example-size' }, title: it.file }, it.sizeText) : null),
       it.description ? h('div', { class: 'exdesc muted', dataset: { role: 'example-desc' } }, it.description) : null,
       (it.badges || []).length
         ? h('div', { class: 'chips', dataset: { role: 'example-badges' } }, it.badges.map((b) => h('span', { class: `chip ${EXAMPLE_BADGE_CLASS[b.kind] || ''}`, title: b.title, dataset: { badge: b.kind } }, b.label)))
         : null,
-      it.allow ? h('div', { class: 'exallow', dataset: { role: 'example-allow-row' } }, h('span', { class: 'k' }, 'What to allow: '), h('span', { dataset: { role: 'example-allow', from: it.allowFrom || '' } }, it.allow)) : null,
+      it.allow ? h('div', { class: 'exallow', dataset: { role: 'example-allow-row' } }, h('span', { class: 'k' }, it.allowFrom === 'registry' ? 'Asks for: ' : 'What to allow: '), h('span', { dataset: { role: 'example-allow', from: it.allowFrom || '' } }, it.allow)) : null,
       status,
     );
     rowEls.set(it.file, row);
@@ -1886,7 +1892,7 @@ function openExamplesSheet(data) {
     installBtn.disabled = true;
     installBtn.textContent = 'Installing…';
     for (const it of items) setNote(it.file, names.includes(it.file) ? { text: 'Waiting…', cls: 'muted' } : { text: 'Not selected', cls: 'muted' });
-    examplesLive = (ev) => setNote(ev.file, exampleResultNote(ev), ev.phase === 'verifying' || ev.phase === 'installing' ? undefined : ev.phase);
+    examplesLive = (ev) => setNote(ev.file, exampleResultNote(ev), ev.phase === 'downloading' || ev.phase === 'verifying' || ev.phase === 'installing' ? undefined : ev.phase);
     try {
       const r = await loader.examplesInstall(names);
       for (const res of r.results) setNote(res.file, exampleResultNote(res), res.status);
@@ -1912,10 +1918,12 @@ function openExamplesSheet(data) {
     body: h(
       'div',
       { class: 'examples', dataset: { role: 'examples' } },
-      h('div', { class: 'muted' }, 'These are the sample apps that came with this loader. Choose the ones to install. Each package is verified again as it is installed.'),
+      h('div', { class: 'muted', dataset: { role: 'examples-intro' } }, data.source === 'registry'
+        ? 'These are the sample apps from the D9010 VmApp registry, published by D9010 Inc. Choose the ones to install. Each one is downloaded and verified as it is installed, and updates from the registry afterwards.'
+        : 'These are the sample apps that came with this loader. Choose the ones to install. Each package is verified again as it is installed.'),
       h('div', { class: 'exnote', dataset: { role: 'examples-note' } }, "Installing doesn't grant anything: each app asks for its permissions the first time you launch it."),
       h('div', { class: 'exbar' }, count, toggle),
-      h('div', { class: 'exlist', dataset: { role: 'examples-list' } }, rows),
+      h('div', { class: 'exlist', dataset: { role: 'examples-list' } }, rows.length ? rows : h('div', { class: 'muted', dataset: { role: 'examples-none' } }, 'The registry has no sample apps yet.')),
       summary,
     ),
     buttons: [

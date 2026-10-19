@@ -3,6 +3,21 @@
 What changed in each version of the D9010 VmApp Launcher, newest first. The launcher shows the latest entry on its update card, the
 website's download page links here, and each GitHub release carries the same text.
 
+## [0.1.5] - 2026-10-18
+
+The launcher is about 240 MB smaller, because the sample apps now come from the registry, where each one is updated on its own.
+
+### Changed
+
+- The sample apps no longer travel inside the launcher: it is a download of about 290 MB instead of 523 MB, and so is every update. **Load examples** now lists the sample apps from the D9010 VmApp registry (published by D9010 Inc), and you choose which to install.
+- Each sample app is downloaded and checked as it is installed, and then updates from the registry by itself, so an app can be fixed without a new launcher. **Load examples** needs the internet; **Install from file…** still works without it.
+- **Browse registry…** shows the company of a verified publisher, for example "D9010 Inc · Verified: d9010.com", and nothing for a publisher nobody has verified. The word "unverified" is gone.
+- An app's card no longer shows the publisher that the app's own package claims; the install review still shows it, as a claim.
+
+### Added
+
+- Apps of any size up to 512 MiB can be published to the registry: **Publish…** and `vmapp publish` send a large package in parts. The VS Code sample (402 MB) is published that way.
+
 ## [0.1.4] - 2026-10-18
 
 The launcher checks for updates every time you open it, explains itself when it cannot update, and apps now follow Electron's rules for files and messages.

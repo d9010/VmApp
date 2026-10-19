@@ -377,8 +377,13 @@ function browseItem(x) {
   return {
     id,
     name: cleanText(x.name, 100) || id,
-    // exactly what the registry presents (its "display only verified facts" rule is the registry's); the level only picks the style
-    publisher: { level: PUBLISHER_LEVELS.includes(pub.level) ? pub.level : 'unknown', label: cleanText(pub.label, 200) },
+    // exactly what the registry presents (its "display only verified facts" rule is the registry's); the level only picks the style.
+    // An unverified publisher has an empty label and shows nothing. The domain and the company come with a verified domain only.
+    publisher: Object.assign(
+      { level: PUBLISHER_LEVELS.includes(pub.level) ? pub.level : 'unknown', label: cleanText(pub.label, 200) },
+      pub.level === 'domain' && cleanText(pub.domain, 253) ? { domain: cleanText(pub.domain, 253).toLowerCase() } : {},
+      pub.level === 'domain' && cleanText(pub.company, 100) ? { company: cleanText(pub.company, 100) } : {},
+    ),
     description: cleanText(x.description, 600),
     latestVersion,
     runtime: RUNTIMES.includes(x.runtime) ? x.runtime : '',
@@ -741,6 +746,7 @@ class Updates {
 // for a later version, the owner token the user holds; nothing else (no app list, no identifiers). INV-G3.
 
 const PUBLISH_IDLE_MS = 60 * 1000;
+const PUBLISH_COMPLETE_IDLE_MS = 15 * 60 * 1000;
 const PUBLISH_MAX_RESPONSE = 1024 * 1024;
 const PUBLISHER_FIELDS = ['name', 'company', 'email', 'url'];
 
@@ -840,8 +846,8 @@ function preparePublish(file, opts) {
   return { registry, p, token };
 }
 
-/** One HTTP request with a small body (JSON) or a file streamed from disk. Resolves { status, headers, text }. */
-function httpExchange(url, { method, headers, body, file, idleMs }) {
+/** One HTTP request with a small body (JSON) or a file streamed from disk (all of it, or the bytes start..end of `range`). Resolves { status, headers, text }. */
+function httpExchange(url, { method, headers, body, file, range, idleMs }) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let input = null;
@@ -867,7 +873,7 @@ function httpExchange(url, { method, headers, body, file, idleMs }) {
     });
     req.on('error', (e) => done(reject, netError(e, url)));
     if (file) {
-      input = fs.createReadStream(file);
+      input = fs.createReadStream(file, range ? { start: range.start, end: range.end } : undefined);
       input.on('error', (e) => {
         req.destroy();
         done(reject, new UpdateError(`Cannot read the package: ${e.message}`));
@@ -877,6 +883,41 @@ function httpExchange(url, { method, headers, body, file, idleMs }) {
       req.end(body);
     }
   });
+}
+
+/**
+ * The parts a registry asked for (`init` answered with `parts: {size, count}`, a package too large for one request): checked
+ * against the package size, so that a registry cannot make the loader read outside the file or send an absurd number of requests.
+ */
+function uploadParts(parts, size) {
+  const ok = parts && Number.isSafeInteger(parts.size) && Number.isSafeInteger(parts.count) && parts.size >= 5 * 1024 * 1024 && parts.size <= 96 * 1024 * 1024 && parts.count >= 2 && parts.count <= 1000 && parts.count === Math.ceil(size / parts.size);
+  if (!ok) throw new UpdateError('The registry asked for the package in parts this loader does not understand.', { status: 200 });
+  return parts;
+}
+
+/** Sends the package in the parts the registry asked for, one request each, a part tried up to three times. */
+async function putParts(file, target, parts, size, opts) {
+  for (let n = 1; n <= parts.count; n++) {
+    const start = (n - 1) * parts.size;
+    const end = Math.min(size, start + parts.size) - 1;
+    const url = `${target}${target.includes('?') ? '&' : '?'}part=${n}`;
+    let last = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const put = await httpExchange(url, { method: 'PUT', headers: { 'Content-Length': String(end - start + 1) }, file, range: { start, end }, idleMs: opts.idleMs });
+        if (put.status >= 200 && put.status < 300) {
+          last = null;
+          break;
+        }
+        last = new UpdateError(`Part ${n} of ${parts.count} could not be uploaded to the registry (HTTP ${put.status}). Try again; if it keeps failing, tell the registry's operator.`, { status: put.status, code: 'upload_failed' });
+        if (put.status >= 400 && put.status < 500 && put.status !== 408 && put.status !== 429) break; // the registry refused it: sending it again changes nothing
+      } catch (e) {
+        last = e;
+      }
+    }
+    if (last) throw last;
+    if (typeof opts.onProgress === 'function') opts.onProgress({ sent: end + 1, total: size, part: n, parts: parts.count });
+  }
 }
 
 /** Turns the registry's answer to a publish (direct, or the "complete" step) into the result or an UpdateError. */
@@ -964,9 +1005,13 @@ async function publishPresigned(file, ctx, opts) {
   }
   if (!ij || typeof ij.uploadId !== 'string' || typeof ij.url !== 'string') throw new UpdateError('The registry sent an upload address this loader does not understand.', { status: 200 });
   const target = storageTarget(registry, ij.url);
-  const put = await httpExchange(target, { method: 'PUT', headers: { 'Content-Length': String(size) }, file, idleMs: opts.idleMs });
-  if (put.status < 200 || put.status >= 300) {
-    throw new UpdateError(`The package could not be uploaded to the registry's storage (HTTP ${put.status}). Try again; if it keeps failing, tell the registry's operator.`, { status: put.status, code: 'upload_failed' });
+  if (ij.parts) {
+    await putParts(file, target, uploadParts(ij.parts, size), size, opts);
+  } else {
+    const put = await httpExchange(target, { method: 'PUT', headers: { 'Content-Length': String(size) }, file, idleMs: opts.idleMs });
+    if (put.status < 200 || put.status >= 300) {
+      throw new UpdateError(`The package could not be uploaded to the registry's storage (HTTP ${put.status}). Try again; if it keeps failing, tell the registry's operator.`, { status: put.status, code: 'upload_failed' });
+    }
   }
   const headers = Object.assign({ 'Content-Type': 'application/json', Accept: 'application/json' }, auth);
   if (!token) {
@@ -975,7 +1020,8 @@ async function publishPresigned(file, ctx, opts) {
   }
   const doneBody = json({ uploadId: ij.uploadId });
   headers['Content-Length'] = String(doneBody.length);
-  const done = await httpExchange(`${registry}/api/publish/complete`, { method: 'POST', headers, body: doneBody, idleMs: opts.idleMs });
+  // the registry checks the whole package before it answers, which takes a while for a large one
+  const done = await httpExchange(`${registry}/api/publish/complete`, { method: 'POST', headers, body: doneBody, idleMs: opts.idleMs || PUBLISH_COMPLETE_IDLE_MS });
   return publishResult(done, ctx);
 }
 
@@ -1156,6 +1202,7 @@ module.exports = {
   parseAppRef,
   isInsecureRemote,
   storageTarget,
+  uploadParts,
   browseParams,
   cleanBrowseList,
   BROWSE_SORTS,

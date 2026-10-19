@@ -807,8 +807,28 @@ async function cmdPublish({ pos, flags }, store) {
     if (!init.ok) return fail(init);
     const up = await init.json();
     const target = hostlib.updates.storageTarget(registry, up.url);
-    const put = await registryFetch(target, { method: 'PUT', body, redirect: 'error' }, 30 * 60 * 1000);
-    if (!put.ok) throw new Error(`publish failed: the upload to the registry's storage at ${new URL(target).origin} answered HTTP ${put.status}`);
+    if (up.parts) {
+      // a package too large for one request: the registry asked for it in parts (PUT <url>?part=N), one request each
+      const parts = hostlib.updates.uploadParts(up.parts, body.length);
+      for (let n = 1; n <= parts.count; n++) {
+        const start = (n - 1) * parts.size;
+        const chunk = body.subarray(start, Math.min(body.length, start + parts.size));
+        let put = null;
+        for (let attempt = 1; attempt <= 3 && !(put && put.ok); attempt++) {
+          try {
+            put = await registryFetch(`${target}${target.includes('?') ? '&' : '?'}part=${n}`, { method: 'PUT', body: chunk, redirect: 'error' }, 10 * 60 * 1000);
+          } catch (e) {
+            if (attempt === 3) throw e;
+          }
+          if (put && !put.ok && put.status >= 400 && put.status < 500 && put.status !== 408 && put.status !== 429) break;
+        }
+        if (!put || !put.ok) throw new Error(`publish failed: part ${n} of ${parts.count} was refused by ${new URL(target).origin} (HTTP ${put ? put.status : 'no answer'})`);
+        process.stderr.write(`  uploaded part ${n} of ${parts.count}\n`);
+      }
+    } else {
+      const put = await registryFetch(target, { method: 'PUT', body, redirect: 'error' }, 30 * 60 * 1000);
+      if (!put.ok) throw new Error(`publish failed: the upload to the registry's storage at ${new URL(target).origin} answered HTTP ${put.status}`);
+    }
     const ch = { 'Content-Type': 'application/json' };
     if (token) ch.Authorization = `Bearer ${token}`;
     else if (profileHeader) ch['X-Vmapp-Publisher'] = profileHeader;
@@ -821,7 +841,10 @@ async function cmdPublish({ pos, flags }, store) {
   console.log(`published ${r.id} ${r.version} to ${registry}`);
   console.log(`package id: ${r.packageId}`);
   console.log(`page: ${registry}${r.url}`);
-  if (r.publisher) console.log(`shown to users as: ${r.publisher.label}${r.publisher.level === 'unverified' ? `  (verify your identity at ${registry}/publisher)` : ''}`);
+  if (r.publisher) {
+    if (r.publisher.label) console.log(`shown to users as: ${r.publisher.company ? `${r.publisher.company}, ` : ''}${r.publisher.label}`);
+    else console.log(`no publisher name is shown with this app until you verify your identity at ${registry}/publisher`);
+  }
   if (r.ownerToken) {
     const where = saveToken(store, registry, id, r.ownerToken);
     console.log('');
@@ -845,7 +868,7 @@ async function cmdSearch({ pos, flags }) {
   const w = Math.max(...r.items.map((a) => a.id.length));
   for (const a of r.items) {
     const desc = a.description ? ` - ${a.description.replace(/\s+/g, ' ').slice(0, 70)}` : '';
-    console.log(`${a.id.padEnd(w)}  ${a.latestVersion.padEnd(8)} ${String(a.downloads).padStart(6)} dl  ${a.name} [${a.publisher ? a.publisher.label : 'Unverified publisher'}]${desc}`);
+    console.log(`${a.id.padEnd(w)}  ${a.latestVersion.padEnd(8)} ${String(a.downloads).padStart(6)} dl  ${a.name}${a.publisher && a.publisher.label ? ` [${a.publisher.company ? `${a.publisher.company}, ` : ''}${a.publisher.label}]` : ''}${desc}`);
   }
   if (r.total > r.items.length) console.log(`(${r.total - r.items.length} more: narrow the query or raise --limit)`);
 }

@@ -18,6 +18,10 @@ runtime images, an app registry). App developers shipping their own apps should 
 | `runtimes/native.img`, `node22.img`, `dotnet8.img` | 0.2 + 122 + 111 MB | `tools/mkruntime` |
 | **Total app** | ~540 MB on disk; **~300 MB zipped** | `tools/package-mac.sh` |
 
+**The sample apps are not in the download.** **Load examples** lists them from the D9010 VmApp registry (the apps of the publisher whose
+domain the registry verified, d9010.com) and installs the ones the user chooses; each one is published and updated on its own (section 5).
+A build can still carry them (`--with-examples`, about 800 MB more on disk), which a launcher then uses instead of the registry.
+
 **The VM ships once, here.** Apps (`.vmapp`) never contain a VM, kernel or runtime. Updating the loader updates the
 kernel and runtimes for every app.
 
@@ -91,7 +95,7 @@ Ad-hoc builds run on the build machine. Other Macs show Gatekeeper warnings. A p
 Developer ID and notarization:
 ```sh
 xcrun notarytool store-credentials "<PROFILE>" --apple-id "<APPLE_ID>" --team-id "<TEAMID>"   # once; it asks for an app-specific password, so none is on the command line
-SIGN_IDENTITY="Developer ID Application: <NAME> (<TEAMID>)" tools/package-mac.sh --with-examples --examples-dir=<a folder of the examples you may publish>
+SIGN_IDENTITY="Developer ID Application: <NAME> (<TEAMID>)" tools/package-mac.sh
 bash tools/notarize-mac "<PROFILE>"
 ```
 `tools/notarize-mac` refuses an ad-hoc build, sends the zip to Apple's notary service and waits for the verdict, prints Apple's log if it is not "Accepted", and
@@ -104,11 +108,11 @@ otherwise staples the ticket and re-creates the zip. By hand, those steps are `x
 out as real files, the Electron framework's seal breaks, and the downloaded app is refused ("could not verify … free of malware"). `--release` refuses a zip
 with `._` entries and tests the build unpacked with plain `unzip`. (Found on the first 0.1.0 download; the zip was replaced in place, the app was not changed.)
 
-**Apple opens archives inside archives.** With `--with-examples` the app carries `.vmapp` packages, and Apple's checker looks inside them (a package is a tar,
-and its core a cpio). Any macOS program in there that is not signed with your Developer ID and a secure timestamp makes the whole submission "Invalid". Our
-packages hold Linux programs, which Apple ignores, so the build must not leave macOS or Windows files in them: `apps/terminal/build.sh` deletes the
-`prebuilds/darwin-*` and `prebuilds/win32-*` folders that the Gemini CLI's dependencies bring. Which examples a release carries is chosen with
-`tools/pack-examples --without NAME`.
+**Apple opens archives inside archives.** A build made with `--with-examples` carries `.vmapp` packages (the released launcher does not), and Apple's checker
+looks inside them (a package is a tar, and its core a cpio). Any macOS program in there that is not signed with your Developer ID and a secure timestamp makes
+the whole submission "Invalid". Our packages hold Linux programs, which Apple ignores, so the build must not leave macOS or Windows files in them:
+`apps/terminal/build.sh` deletes the `prebuilds/darwin-*` and `prebuilds/win32-*` folders that the Gemini CLI's dependencies bring. Which examples such a build
+carries is chosen with `tools/pack-examples --without NAME`.
 **Keep `CFBundleName` equal to the packager's `name` (`D9010VmAppLauncher`).** Electron finds its helper programs as `<CFBundleName> Helper.app`; with the spaced
 display name in `CFBundleName` the app quits at start with "Unable to find helper app". Only `CFBundleDisplayName` has spaces, and `loader/build/package.mjs`
 checks that the helpers exist.
@@ -174,10 +178,10 @@ How it works, and what a release must therefore get right:
   Applications** (`app.moveToApplicationsFolder`, after asking about running apps). The download page and the GitHub release notes tell the user to drag the
   app into Applications. Not yet exercised on a real translocated copy: see PM.md.
 - Runtime updates arrive with launcher updates (the runtimes are bundled).
-- **An update is the whole zip (about 520 MB); there is no delta.** Squirrel.Mac replaces the app, and the 14 sample apps and the runtimes live inside it. So a
-  fix to a bundled sample app (or a runtime) is a new launcher release, like any other change. The lighter route is the registry: an app installed from it
-  updates by itself, as only its own package. That is not possible for the large samples yet: the registry accepts uploads up to ~95 MiB, and the
-  VS Code package is 402 MB (it needs presigned R2 uploads, see PM.md). Small apps can already be shipped that way.
+- **An update is the whole zip (about 290 MB); there is no delta.** Squirrel.Mac replaces the app, and the runtimes live inside it, so a fix to a runtime is a
+  new launcher release. The sample apps are not inside: each is published to the registry on its own (`tools/pack-examples --only NAME --publish`, with the
+  owner token in `$VMAPP_PUBLISH_TOKEN`; a package the registry has already is not sent again) and an app installed from the registry updates by itself, as only
+  its own package. The registry takes packages up to 512 MiB (larger ones go up in parts: `registry-worker/README.md`).
 
 Because the in-place update needs a signed build, a release is only ever made from a Developer ID build (section 2.1). The first
 version cannot test the update itself: that needs two signed releases (see section 6).
@@ -190,7 +194,7 @@ version cannot test the update itself: that needs two signed releases (see secti
    [../CHANGELOG.md](../CHANGELOG.md), `## [0.1.1] - YYYY-MM-DD`, an optional one-line summary, then `### Added` / `### Changed` / `### Fixed`
    bullets in plain words. Users read these on the update card (the first sentence of each bullet), on the download page, on the GitHub release and
    on the website's changelog page, so write them for users, not for developers.
-2. **Build, sign and notarize** (section 2.1): `SIGN_IDENTITY=... tools/package-mac.sh --with-examples --examples-dir=<folder>`, then
+2. **Build, sign and notarize** (section 2.1): `SIGN_IDENTITY=... tools/package-mac.sh`, then
    `bash tools/notarize-mac <profile>`. The result is `out/dist/D9010-VmApp-Launcher-<version>-mac-arm64.zip`.
 3. **Publish the source**: refresh the public export (`tools/export-github --out <public checkout> --refresh`), commit and push it so that GitHub is at
    the commit the build was made from. The release tags that commit.

@@ -55,7 +55,7 @@ function cli(args) {
 
 async function startServer() {
   serverLog = '';
-  server = spawn('npx', ['--yes', WRANGLER, 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--local-upstream', `127.0.0.1:${PORT}`, '--persist-to', persist, '--show-interactive-dev-session=false'], { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn('npx', ['--yes', WRANGLER, 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--local-upstream', `127.0.0.1:${PORT}`, '--persist-to', persist, '--var', 'PUBLISH_PER_HOUR:200', '--var', 'ADMIN_TOKEN:test-admin-token','--show-interactive-dev-session=false'], { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout.on('data', (d) => { serverLog += d; });
   server.stderr.on('data', (d) => { serverLog += d; });
   for (let i = 0; i < 120; i++) {
@@ -228,12 +228,108 @@ test('a medium package (tens of MB) publishes and downloads intact', { skip: !mi
   assert.equal(h.digest('hex'), sha(midsize));
 });
 
-test('a package over the proxy limit is refused with a clear message until direct-to-storage uploads exist', { skip: !big && 'no packages' }, async () => {
+// A package over the proxy limit (95 MiB) goes up in parts of 32 MiB, each its own request, and R2 assembles them.
+const overProxyLimit = big && fs.statSync(big).size > 95 * 1024 * 1024;
+const PART = 32 * 1024 * 1024;
+const slice = (file, start, end) => {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const b = Buffer.alloc(end - start);
+    fs.readSync(fd, b, 0, b.length, start);
+    return b;
+  } finally {
+    fs.closeSync(fd);
+  }
+};
+const jsonPost = (p, o) => api(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(o) });
+
+test('a package over the proxy limit: init asks for it in parts, and a wrong request is refused with a clear message', { skip: !overProxyLimit && 'no package over 95 MiB' }, async () => {
   const size = fs.statSync(big).size;
-  if (size <= 95 * 1024 * 1024) return;
-  const init = await api('/api/publish/init', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ size, sha256: sha(big) }) });
-  assert.equal(init.status, 413);
-  assert.equal(init.body.error.code, 'too_large_for_proxy');
+  const init = await jsonPost('/api/publish/init', { size, sha256: sha(big) });
+  assert.equal(init.status, 200, init.text);
+  assert.deepEqual(init.body.parts, { size: PART, count: Math.ceil(size / PART) });
+  const url = init.body.url;
+  const put = (q, body) => fetch(`${url}${q}`, { method: 'PUT', body });
+  // a client that does not know about parts sends the whole package: told what to do instead
+  const whole = await put('', Buffer.alloc(10));
+  assert.equal(whole.status, 400);
+  assert.match((await whole.json()).error.message, /in \d+ parts of \d+ bytes/);
+  // part numbers and lengths are checked
+  for (const q of ['?part=0', `?part=${init.body.parts.count + 1}`, '?part=x', '?part=1.5']) assert.equal((await put(q, Buffer.alloc(1000))).status, 400, q);
+  const short = await put('?part=1', Buffer.alloc(1000));
+  assert.equal(short.status, 400);
+  assert.equal((await short.json()).error.code, 'upload_mismatch');
+  // nothing uploaded yet, then one part of several: complete says which are missing
+  const none = await jsonPost('/api/publish/complete', { uploadId: init.body.uploadId });
+  assert.equal(none.body.error.code, 'upload_missing');
+  assert.match(none.body.error.message, /0 of \d+ parts/);
+  const first = await put('?part=1', slice(big, 0, PART));
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), { uploaded: true, part: 1, size: PART, received: 1, of: init.body.parts.count });
+  const some = await jsonPost('/api/publish/complete', { uploadId: init.body.uploadId });
+  assert.equal(some.status, 400);
+  assert.match(some.body.error.message, /1 of \d+ parts have been uploaded; still missing: 2/);
+});
+
+test('a package over the proxy limit publishes in parts with the real CLI and downloads intact', { skip: !overProxyLimit && 'no package over 95 MiB' }, async () => {
+  const r = cli(['publish', big, '--token', ownerToken || '']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /uploaded part 1 of \d+/);
+  assert.match(r.out, /published .* to /);
+  const size = fs.statSync(big).size;
+  const item = (await api('/api/apps')).body.items.find((i) => i.sizeBytes === size);
+  assert.ok(item, 'the package is listed');
+  const res = await fetch(`${BASE}/api/apps/${item.id}/latest/download`);
+  assert.equal(res.headers.get('content-length'), String(size));
+  const h = createHash('sha256');
+  for await (const c of res.body) h.update(c);
+  assert.equal(h.digest('hex'), sha(big));
+});
+
+test('parts may come in any order and be sent again; the last part must have exactly the bytes that are left', { skip: !overProxyLimit && 'no package over 95 MiB' }, async () => {
+  // this upload stops before the end (the package is already published, and versions are immutable)
+  const size = fs.statSync(big).size;
+  const init = await jsonPost('/api/publish/init', { size, sha256: sha(big) });
+  assert.equal(init.status, 200, init.text);
+  const count = init.body.parts.count;
+  const last = size - PART * (count - 1);
+  const put = (n, body) => fetch(`${init.body.url}?part=${n}`, { method: 'PUT', body });
+  assert.equal((await put(count, slice(big, PART * (count - 1), size))).status, 200);
+  assert.equal((await put(1, Buffer.alloc(PART))).status, 200); // wrong bytes, but the right length: R2 takes them
+  assert.equal((await put(1, slice(big, 0, PART))).status, 200); // sent again: replaces the first
+  assert.equal((await put(count, Buffer.alloc(last - 1))).status, 400); // the last part has exactly the bytes that are left
+  const done = await jsonPost('/api/publish/complete', { uploadId: init.body.uploadId });
+  assert.equal(done.status, 400);
+  assert.match(done.body.error.message, /2 of \d+ parts have been uploaded/);
+});
+
+test('only the operator can verify a publisher; apps of other publishers stay unverified and show nothing', { skip: !notes && 'no packages' }, async () => {
+  const verify = (headers) => api(`/api/admin/apps/${notesId}/verify-publisher`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ domain: 'd9010.com' }) });
+  assert.equal((await verify({})).status, 403, 'no credentials');
+  assert.equal((await verify({ authorization: `Bearer ${ownerToken}` })).status, 403, 'the publisher cannot verify itself');
+  assert.equal((await verify({ authorization: 'Bearer wrong' })).status, 403);
+  // self-service verification is not available on this registry
+  for (const p of ['verify-email', 'verify-domain', 'check-domain']) {
+    assert.equal((await api(`/api/publisher/${p}`, { method: 'POST', headers: { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' }, body: '{}' })).status, 501, p);
+  }
+  const bad = await api(`/api/admin/apps/${notesId}/verify-publisher`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer test-admin-token' }, body: JSON.stringify({ domain: 'https://d9010.com/x' }) });
+  assert.equal(bad.status, 400);
+  const ok = await verify({ authorization: 'Bearer test-admin-token' });
+  assert.equal(ok.status, 200, ok.text);
+  assert.equal(ok.body.publisher.level, 'domain');
+  assert.equal(ok.body.publisher.label, 'Verified: d9010.com');
+  assert.equal((await verify({ authorization: 'Bearer test-admin-token' })).status, 200, 'again: nothing changes');
+  // the list: this publisher's apps are verified (with the company it entered), everyone else's show nothing
+  const items = (await api('/api/apps')).body.items;
+  const mine = items.filter((i) => i.publisher.level === 'domain');
+  const others = items.filter((i) => i.publisher.level !== 'domain');
+  assert.ok(mine.length >= 1 && mine.some((i) => i.id === notesId));
+  assert.ok(mine.every((i) => i.publisher.label === 'Verified: d9010.com'));
+  assert.ok(others.length >= 1, 'an app of another publisher exists in this run');
+  for (const i of others) assert.deepEqual(i.publisher, { level: 'unverified', label: '' }, i.id);
+  if (overProxyLimit) assert.ok(mine.some((i) => i.sizeBytes === fs.statSync(big).size), 'the large package was published with the same token, so it is verified too');
+  const missing = await api('/api/admin/apps/com.example.nope/verify-publisher', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer test-admin-token' }, body: JSON.stringify({ domain: 'd9010.com' }) });
+  assert.equal(missing.status, 404, 'an unknown app');
 });
 
 test('everything survives a restart of the Worker (the log is replayed from SQLite)', async () => {
