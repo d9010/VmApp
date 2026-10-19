@@ -318,7 +318,7 @@ test('dialog.save: wo grant on the chosen file, guest path, cancel, name sanitis
   assert.equal(s.dlg.calls[0].params.defaultName, 'default.html');
   const g = s.vmLines().filter((l) => l.stdin && l.stdin.op === 'grant').map((l) => l.stdin);
   assert.deepEqual(g, [{ op: 'grant', name: 'save-0', access: 'wo', path: target }]);
-  assert.deepEqual(await s.wm.invoke(1, 'dialog:save', ''), { canceled: true }); // (undefined is dropped by JSON)
+  assert.deepEqual(await s.wm.invoke(1, 'dialog:save', ''), { canceled: true, filePath: undefined }); // (a key that is undefined stays, as in structured clone)
   assert.equal(s.dlg.calls[1].params.defaultName, 'untitled');
   assert.equal(sanitizeName('../../etc/passwd'), 'passwd');
   assert.equal(sanitizeName('a\u0000b\n.txt'), 'ab.txt');

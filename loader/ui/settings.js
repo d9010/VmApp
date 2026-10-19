@@ -258,7 +258,7 @@ function renderUpdates() {
     guarded(async () => {
       try {
         st.prefs = await settings.setPref('checkForUpdates', box.checked);
-        banner('info', box.checked ? 'The launcher will check for updates when it starts, and once a day.' : 'The launcher will check for updates only when you choose “Check for Updates…”.');
+        banner('info', box.checked ? 'The launcher will check for updates each time it starts, and at least once a day.' : 'The launcher will check for updates only when you choose “Check for Updates…”.');
       } catch (e) {
         box.checked = !box.checked;
         throw e;
@@ -272,10 +272,10 @@ function renderUpdates() {
     h(
       'div',
       { class: 'muted sub' },
-      'The launcher can ask, a little after it starts and then once a day, whether a newer version of itself exists. It asks one address on vmapp.dev for a small file and sends nothing about you: no identifier, no list of your apps, not even the version you run. A card appears in the library when there is an update. Nothing is downloaded until you press “Update now”, and nothing restarts until you press “Restart to update”. You can also ask any time with “Check for Updates…” in the launcher’s menu.',
+      'The launcher can ask, each time it starts and then at least once a day while it runs, whether a newer version of itself exists. It asks one address on vmapp.dev for a small file and sends nothing about you: no identifier, no list of your apps, not even the version you run. A card appears in the library when there is an update. Nothing is downloaded until you press “Update now”, and nothing restarts until you press “Restart to update”. You can also ask any time with “Check for Updates…” in the launcher’s menu.',
     ),
     h('label', { class: 'stoprow' }, box, ' Check for launcher updates automatically'),
-    h('div', { class: 'sub muted', dataset: { role: 'pref-check-updates-note' } }, on ? 'On: checks when the launcher starts, and once a day while it runs.' : 'Off: checks only when you choose “Check for Updates…”.'),
+    h('div', { class: 'sub muted', dataset: { role: 'pref-check-updates-note' } }, on ? 'On: checks each time the launcher starts, and at least once a day while it runs.' : 'Off: checks only when you choose “Check for Updates…”.'),
   );
 }
 

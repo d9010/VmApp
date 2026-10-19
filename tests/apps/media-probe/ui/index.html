@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Media Probe</title>
+    <!-- the first script: it makes fetch() and every picture, font and sound under /assets/ work (data-media-max-data: images above 1 MB become blob: URLs) -->
+    <script src="vmapp-fetch.js" data-prefix="/assets/" data-media-max-data="1000000"></script>
+    <script src="probe-early.js"></script>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" id="theme" href="/assets/css/theme.css" />
+    <style>
+      /* every way a style sheet can name a file the server serves */
+      @font-face { font-family: ProbeFont; src: url(/assets/font.woff2) format("woff2"); }
+      @font-face { font-family: ProbeFontOctet; src: url("/assets/font-octet.woff2") format("woff2"), url(/assets/font.ttf) format("truetype"); }
+      @font-face { font-family: ProbeFontHuge; src: url(/assets/huge.ttf) format("truetype"); }
+      #bg { background-image: url(/assets/pixel.png); }
+      #bg-shorthand { background: #fff url('/assets/pixel2.png') no-repeat 3px 3px; }
+      #bg-two { background-image: url(/assets/pixel.png), url(/assets/icon.svg); }
+      #mask { background: #06c; -webkit-mask: url(/assets/icon.svg) no-repeat center / contain; mask: url(/assets/icon.svg) no-repeat center / contain; }
+      #list { list-style-image: url(/assets/pixel.png); }
+      #cursor { cursor: url(/assets/pixel.png) 2 2, auto; }
+      #before::before { content: url(/assets/pixel.png); }
+      #media-q { background-image: url(/assets/pixel.png); }
+      @media (min-width: 1px) { #in-media { background-image: url(/assets/pixel2.png); } }
+      #font { font-family: ProbeFont, serif; }
+      #font-octet { font-family: ProbeFontOctet, serif; }
+      #font-huge { font-family: ProbeFontHuge, serif; }
+      #abs { background-image: url("vmapp-ui://dev.vmapp.mediaprobe/assets/icon.svg"); }
+      #not-bridged-url { background-image: url(data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==); }
+    </style>
+  </head>
+  <body>
+    <h1>Media Probe</h1>
+    <section id="imgs">
+      <img id="png" src="/assets/pixel.png" alt="png" />
+      <img id="svg" src="/assets/icon.svg" alt="svg" />
+      <img id="svg-octet" src="/assets/wrongtype.svg" alt="svg as octet-stream" />
+      <img id="svg-text" src="/assets/textplain-svg" alt="svg as text, no extension" />
+      <img id="noext" src="/assets/blob" alt="png, no Content-Type" />
+      <img id="srcset" src="/assets/pixel.png" srcset="/assets/pixel.png 1x, /assets/pixel2.png 2x" alt="srcset" />
+      <picture id="pic"><source srcset="/assets/pixel2.png 1x" media="(min-width: 1px)" /><img id="pic-img" src="/assets/pixel.png" alt="picture" /></picture>
+      <img id="big" src="/assets/big.bmp" alt="a bitmap above the data: limit" />
+      <img id="local" src="local.svg" alt="a file of the app's own package" />
+      <img id="data-url" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="a data: URL" />
+      <img id="redir" src="/assets/redirect.png" alt="a picture the server redirects" />
+      <img id="redir-chain" src="/assets/redirect-chain" alt="two redirects in a row" />
+      <img id="missing" src="/assets/missing.png" alt="a file the server does not have" />
+      <img id="foreign" src="https://example.com/never.png" alt="another site" />
+      <svg id="svgimg" width="10" height="10"><image id="svgimage" href="/assets/pixel.png" width="10" height="10"></image></svg>
+      <input id="inputimg" type="image" src="/assets/pixel.png" alt="input image" />
+    </section>
+    <section id="boxes">
+      <div id="bg" class="box">bg</div>
+      <div id="bg-shorthand" class="box">bg shorthand</div>
+      <div id="bg-two" class="box">two backgrounds</div>
+      <div id="mask" class="box">mask</div>
+      <ul><li id="list">list-style-image</li></ul>
+      <div id="cursor" class="box">cursor</div>
+      <div id="before" class="box"></div>
+      <div id="in-media" class="box">in @media</div>
+      <div id="abs" class="box">absolute address</div>
+      <div id="not-bridged-url" class="box">data URL in CSS</div>
+      <div id="local-bg" class="box local-bg">a file of the package</div>
+      <div id="font" class="box">font</div>
+      <div id="font-octet" class="box">font served as octet-stream</div>
+      <div id="font-huge" class="box">font above the limit</div>
+      <div id="inline" class="box" style="background-image: url(/assets/pixel.png)">inline style</div>
+      <div id="inline-two" class="box">set from script</div>
+      <div id="themed" class="box themed">from a linked style sheet</div>
+    </section>
+    <section id="media">
+      <video id="vid" poster="/assets/pixel.png" width="60" height="40"></video>
+      <audio id="aud" src="/assets/tone.wav" preload="auto"></audio>
+      <audio id="aud2" preload="auto"><source id="aud2-src" src="/assets/tone.wav" type="audio/wav" /></audio>
+    </section>
+    <section id="dynamic"></section>
+    <script src="app.js"></script>
+  </body>
+</html>

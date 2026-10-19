@@ -6,6 +6,13 @@ language.
 - Background reading: [BUILDING-APPS.md](BUILDING-APPS.md) (how D9010 VmApp apps work).
 - The exact contract: [../SPEC.md](../SPEC.md).
 
+**The principle.** An app that works in Electron works here **written the same way**. The page is Chromium; the app's main process is the core (`require('vmapp')`
+instead of `require('electron')`, with the same names and the same behaviour); and what Electron's main process does for the page (answering requests for its
+files, opening windows, dialogs, menus) the launcher does here, by Electron's own mechanism, not by a workaround you have to know about. If something that works in
+Electron does not work here, that is a gap in the platform to report, not something to patch in the app: the list of what is the same, what differs on purpose
+(and why) and what is still to come is [design/ELECTRON-PARITY.md](design/ELECTRON-PARITY.md); each of Electron's own test cases for it is mapped in
+[../tests/electron-conformance/MAPPING.md](../tests/electron-conformance/MAPPING.md).
+
 Three complete, tested conversions sit next to this guide (the first two with the original kept for comparison):
 
 | Example | Before | After | What changed |
@@ -118,8 +125,10 @@ quickly.
 | `win.loadFile(path.join(__dirname, 'renderer/index.html'))` | `win.loadFile('index.html')` (relative to `ui/`) |
 | `win.loadURL('http://localhost:3000')` | not possible; build the UI to static files in `ui/` |
 | `contextBridge.exposeInMainWorld('api', …)` in preload | `ui/api.js` recreating `window.api` on `window.vmapp.ipcRenderer` (§5.2) |
-| `ipcRenderer.invoke / send / on` | `window.vmapp.invoke / send / on` (or `window.vmapp.ipcRenderer.*`) |
-| `ipcMain.handle / on`, `webContents.send` | unchanged |
+| `ipcRenderer.invoke / send / on / once / removeAllListeners / eventNames / listenerCount` | `window.vmapp.invoke / send / on` (or the same names on `window.vmapp.ipcRenderer`; `on` and `once` return the function that removes the listener). Arguments and results are Electron's: anything the structured clone algorithm copies |
+| `ipcRenderer.off / removeListener (channel, fn)` | keep the function `on()` returned and call it, or `removeAllListeners(channel)`: a function cannot be matched by identity across the context bridge (Electron has the same limit under `contextIsolation`) |
+| `ipcRenderer.sendSync`, `event.returnValue` | `await ipcRenderer.invoke(…)` with `ipcMain.handle`: a synchronous call would freeze the page while the VM answers |
+| `ipcMain.handle / on / once / removeAllListeners`, `event.reply`, `webContents.send` | unchanged (`ipcMain` is an `EventEmitter`, as in Electron) |
 | `app.getPath('userData')` | unchanged (it's `/data`) |
 | `fs` on user documents | a grant (`folders.x`) or a dialog pick |
 | `dialog.showOpenDialog / showSaveDialog / showMessageBox` | unchanged (`filters` are ignored in format 1) |
@@ -128,6 +137,8 @@ quickly.
 | `Tray`, `globalShortcut`, `Notification`, `autoUpdater` | not available; move into the UI or drop |
 | `child_process` | works **inside the VM**: a program present in the runtime image, or shipped in `core/` (linux-arm64) |
 | `fetch` / `axios` in the UI to the app's own backend | the HTTP-over-bridge adapter (§5.3) |
+| `<img src>`, CSS `url()`, `@font-face`, `<video>`, `<audio>`, `<link rel=stylesheet>` or an icon set from script, for files **the app's own server serves** (`/api/avatar/7`, `/assets/logo.svg`) | **unchanged**, with `vmapp-fetch.js` first in the page (§5.3.1); there is nothing to write |
+| `protocol.handle('app', …)` / `protocol.registerSchemesAsPrivileged` in main, loading the window from a custom scheme | not available yet (stage 5 of [design/ELECTRON-PARITY.md](design/ELECTRON-PARITY.md)); serve the files from a local server (§5.3) or put them in `ui/` |
 | `fetch` to the internet | from the **core** only, to hosts listed in `permissions.network` that the user allows (SPEC §8.3; the proxy variables are set). Never from the UI. |
 | `localStorage` / IndexedDB | works, private to the app; keep important data in the core's `/data` |
 | a native Node addon (`.node`) | rebuild for linux-arm64 (`npm rebuild` in a linux-arm64 container), or replace it |
@@ -150,7 +161,7 @@ script loaded **first** in `index.html`, built on `window.vmapp.ipcRenderer`:
   const ipc = window.vmapp.ipcRenderer;
   window.api = Object.freeze({
     openFile: () => ipc.invoke('open-file'),
-    onUpdate: (fn) => ipc.on('update', fn),      // returns an unsubscribe function
+    onUpdate: (fn) => ipc.on('update', fn),      // returns an unsubscribe function (Electron returns the emitter; keep the remover, off()/removeListener() cannot match a function across the bridge)
   });
 })();
 ```
@@ -183,7 +194,7 @@ files, vendored into the app (they are not part of any runtime), documented in t
 
 | File | Where | What it does |
 |---|---|---|
-| [`sdk/web/vmapp-fetch.js`](../sdk/web/vmapp-fetch.js) | `ui/`, the first `<script>`: `<script src="vmapp-fetch.js" data-prefix="/api/"></script>` | replaces `window.fetch` for the page's own origin and the listed prefixes; returns a real `Response` whose `body` is a `ReadableStream` fed by the core; sends any request body `fetch` accepts (string, `URLSearchParams`, `Blob`/`File`, `ArrayBuffer`, `FormData` with its boundary, a `Request`) in pieces of at most 768 KiB; honours `AbortSignal` and `reader.cancel()`; routes several servers, one channel each (`data-route="/ollama/:raw"`) |
+| [`sdk/web/vmapp-fetch.js`](../sdk/web/vmapp-fetch.js) | `ui/`, the first `<script>`: `<script src="vmapp-fetch.js" data-prefix="/api/"></script>` | replaces `window.fetch` for the page's own origin and the listed prefixes; returns a real `Response` whose `body` is a `ReadableStream` fed by the core; sends any request body `fetch` accepts (string, `URLSearchParams`, `Blob`/`File`, `ArrayBuffer`, `FormData` with its boundary, a `Request`) in pieces of at most 768 KiB; honours `AbortSignal` and `reader.cancel()`; routes several servers, one channel each (`data-route="/ollama/:raw"`); also announces those paths to the launcher so pictures, fonts, sounds and style sheets under them load natively (§5.3.1), and does the same from the page when the launcher cannot |
 | [`sdk/node/http-bridge.js`](../sdk/node/http-bridge.js) | `core/`: `require('./http-bridge').attach(ipcMain, { port: () => port, prefixes: ['/api/'], headers: () => ({ cookie: '…' }) })` | forwards with `http.request` to a server on `127.0.0.1`, streams the answer back as it is written, and refuses what a page must not do: another host (the server is fixed and must be on the loopback), a path outside `prefixes`, a method outside the list, a pair your `allow(method, path)` refuses, hop-by-hop and credential request headers (`cookie` is yours to set), too many requests at once, an oversized body |
 
 How it works (the wire protocol is in the header of `http-bridge.js`): the page calls `invoke('fetch:open', {id, method, path,
@@ -206,6 +217,39 @@ event streams) travel as UTF-8 strings, split only at character boundaries; othe
 → `apps/ollama-desktop` (Ollama's own desktop app: a streamed chat, model downloads with progress, file attachments) and
 `examples/convert-webapp` (`build.sh --streaming` builds the Bookmarks app on this adapter).
 
+#### 5.3.1 Pictures, fonts, sounds and style sheets that the server serves: nothing to write
+
+A web app's server serves more than JSON: avatars, icons, fonts, downloads, audio, a theme's CSS. In a browser or in Electron the page just names them
+(`<img src="/avatar/7">`, `url(/fonts/x.woff2)`) and they load. Here the window has no network and loads only its own package, so those names must be
+answered by the launcher on the app's behalf. **They are, with no code in the app**, as long as the page loads `vmapp-fetch.js` first and its
+`data-prefix` / `data-route` name the server's paths (the same attributes that make `fetch()` work):
+
+```html
+<script src="vmapp-fetch.js" data-prefix="/api/,/assets/"></script>   <!-- first; the rest of the page is unchanged -->
+```
+
+How it works, in the order it is tried (SPEC §7 "Files the app's server serves"):
+
+1. **The launcher answers, the way Electron does.** The page tells the launcher the paths (`vmapp.serve`); the launcher's `vmapp-ui://` handler answers a
+   request under them with a standard `Response`, by asking the core over the bridge (it is Electron's `protocol.handle`, with the core as the server).
+   Everything the page loads under those paths works natively: `<img>`, `srcset`, `<picture>`, CSS `url()` in any form, `@font-face`, `<video>` and
+   `<audio>` with `Range`, `<link rel=stylesheet>`, `@import`, scripts, `fetch()` with the `self-fetch` window feature. The server's redirects are
+   followed. A file of the package always wins over the server's.
+2. **If the launcher cannot** (an older launcher; the first run of a package built before), `vmapp-fetch.js` does it from the page: it fetches the
+   file over the bridge and puts a `data:` or `blob:` URL in its place, in every place a page can show a picture (SPEC lists them, `tests/apps/media-probe-ui.mjs`
+   tests each one in a real window). It sniffs a missing or generic `Content-Type` and follows redirects.
+
+What to check in a conversion:
+- the server sends a correct `Content-Type` (**an SVG needs `image/svg+xml`**: as in Electron and every browser, a wrong type does not show when the launcher
+  serves it; the page-side fallback is more forgiving and hides this, so test on a current launcher);
+- the console shows no `vmapp-fetch: … could not be shown` warning (it names the file and why: too large, a font above 16 MiB in the fallback, a 404);
+- the vendored `core/http-bridge.js` is the current one (an old copy corrupts binary answers that have no `Content-Type`).
+
+Not covered by either layer, so give the page the bytes itself (`fetch(...).then(r => r.arrayBuffer())`): `new FontFace(name, "url(...)")`,
+`<svg><use href="sprite.svg#id">` (inline the sprite), `<object>`, `<embed>`, `<iframe>`.
+Options on the script tag: `data-native="off"` (use the page-side layer only), `data-media="off"` (no page-side layer), `data-media="/avatars/"` (only these
+paths), `data-media-max-data` and `data-media-max-blob` (limits in bytes).
+
 ### 5.4 Any other backend (a CLI tool, a Python, Go or Rust service)
 Write a small core that speaks the bridge protocol (SPEC §6) and calls the existing code: as a library, or as a child
 process inside the VM. See `apps/hasher` (Rust) and `apps/todo` (.NET) for complete minimal bridge loops. The one
@@ -219,6 +263,8 @@ rule: never block the reading loop while waiting for a reply to your own request
 - [ ] Permissions are minimal, and each `purpose` explains the need in user terms
 - [ ] Declined folders (`null`) are handled with a friendly message
 - [ ] `tools/vmapp verify` passes; the headless test covers every inventory row
+- [ ] Every picture, icon, font and sound the original shows shows here too (look at every screen, the toolbars and the extension or plugin icons included), and the
+      console has no `Refused to load` and no `vmapp-fetch: … could not be shown` (§5.3.1)
 - [ ] The Inspector shows only expected messages during a normal session
 - [ ] CONVERSION.md lists changed, removed and unchanged files
 

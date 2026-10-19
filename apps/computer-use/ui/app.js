@@ -5,6 +5,8 @@
 (() => {
   const api = window.vmapp;
   const $ = (id) => document.getElementById(id);
+  // A handler's error reaches the page as Electron words it: "Error invoking remote method '<channel>': Error: <message>". Show the message.
+  const reason = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
 
   const HINT = {
     screen: 'Grant "screen" to Desk Helper (permission sheet, or: vmapp grant-host dev.vmapp.deskhelper screen). macOS also needs Screen Recording for the D9010 VmApp Launcher.',
@@ -104,7 +106,7 @@
       renderWindows(r.windows);
       $('look-out').hidden = false;
     } catch (e) {
-      show($('st-look'), { ok: false, error: e.message });
+      show($('st-look'), { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }
@@ -150,7 +152,7 @@
       const r = await api.invoke('desk:click', picked);
       show($('st-click'), r, `Moved to (${picked.x}, ${picked.y}) and clicked. Control ended.`);
     } catch (e) {
-      show($('st-click'), { ok: false, error: e.message });
+      show($('st-click'), { ok: false, error: reason(e) });
     } finally {
       refreshPicked();
     }
@@ -173,7 +175,7 @@
       const r = await api.invoke('desk:type', { text });
       show(st, r, `Typed ${r.typed} characters. Control ended.`);
     } catch (e) {
-      show(st, { ok: false, error: e.message });
+      show(st, { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }
@@ -206,7 +208,7 @@
       $('tool-form').hidden = tools.length === 0;
       if (!tools.length) $('st-tools').textContent = 'No tools are granted to this app. Register one with "vmapp tool add" and grant it.';
     } catch (e) {
-      show($('st-tools'), { ok: false, error: e.message });
+      show($('st-tools'), { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }
@@ -226,7 +228,7 @@
       $('tool-out').textContent = `exit code ${x.exitCode}${x.timedOut ? ' (timed out)' : ''}${x.truncated ? ' (output truncated)' : ''}\n--- stdout ---\n${x.stdout}\n--- stderr ---\n${x.stderr}`;
       $('tool-out').hidden = false;
     } catch (e) {
-      show($('st-tool'), { ok: false, error: e.message });
+      show($('st-tool'), { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }
@@ -266,7 +268,7 @@
       if (!servers.length) $('st-mcp-list').textContent = 'No MCP servers are granted to this app. Register one with "vmapp mcp add" and grant it.';
       fillMcpTools();
     } catch (e) {
-      show($('st-mcp-list'), { ok: false, error: e.message });
+      show($('st-mcp-list'), { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }
@@ -291,7 +293,7 @@
       $('mcp-out').textContent = pretty(r.result);
       $('mcp-out').hidden = false;
     } catch (e) {
-      show($('st-mcp'), { ok: false, error: e.message });
+      show($('st-mcp'), { ok: false, error: reason(e) });
     } finally {
       busy(btn, false);
     }

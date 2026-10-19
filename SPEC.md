@@ -22,7 +22,7 @@ This document is binding for every component. If code and spec disagree, the spe
 | `host/` | `vmapp-vm`: one VM per running app (Apple Virtualization.framework), plus `libvmapp`; and `vmapp-vm-krun`, the **experimental** second launcher for the Vulkan GPU (libkrun, §8.7) | Rust + Objective-C shim |
 | `runtimes/<name>/` | Dockerfiles of the shared runtime images (`native`, `node22`, `dotnet8`) | Dockerfile |
 | `tools/mkruntime` | Builds a runtime image (EROFS) from `runtimes/<name>` | bash |
-| `sdk/node/vmapp.js` | The core-side SDK for Node apps (Electron-like API); baked into the `node22` runtime | JavaScript |
+| `sdk/node/vmapp.js`, `sdk/node/ipc-codec.js` | The core-side SDK for Node apps (Electron-like API) and the structured clone codec it shares with the launcher (§6 "Values"); both baked into the `node22` runtime | JavaScript |
 | `sdk/node/http-bridge.js`, `sdk/web/vmapp-fetch.js` | "HTTP over the bridge" with streamed bodies (docs/CONVERTING.md 5.3): the core half and the page half. **Not part of the SDK contract and not baked into a runtime**: an app that converts a web app vendors the two files into its `core/` and `ui/`. They use only `window.vmapp` / `ipcMain` (§6, §9). | JavaScript |
 | `hostlib/` | Host-side library: package reader/verifier, installer, VM session + bridge, window-manager interface | JavaScript (Node, no deps) |
 | `tools/vmapp` | CLI: `pack`, `inspect`, `verify`, `install`, `list`, `uninstall`, `run --headless` | JavaScript (Node) |
@@ -475,10 +475,36 @@ number of values, long strings cut). `host.*` and `clipboard.*` payloads are not
 | `t` | Fields | Meaning |
 |---|---|---|
 | `ready` | — | the core finished starting; it must arrive within 30 s of `init`, or the host stops the app |
-| `result` | `id`, `result` **or** `error:{message}` | answer to an `invoke` |
+| `result` | `id`, `result` **or** `error:{message, text?}` | answer to an `invoke`. `text` is Electron's `error.toString()` of what the handler threw (`TypeError: bad type`); without it the host uses `Error: <message>`. The page's rejection reads `Error invoking remote method '<channel>': <text>` |
 | `emit` | `win`, `channel`, `args:[…]` | deliver to the renderer's `vmapp.on(channel)` listeners in window `win` (`webContents.send`) |
 | `request` | `id`, `op`, `params` | ask the host for something; answered by `reply` |
 | `log` | `level:"debug"\|"info"\|"warn"\|"error"`, `message` | shown in the loader's app log |
+
+### Values (proposed 2026-10-19, [docs/design/ELECTRON-PARITY.md](docs/design/ELECTRON-PARITY.md) stage 1)
+
+`args` of `invoke`, `send` and `emit`, and the `result` of a `result`, carry what Electron's IPC carries: **anything the structured clone
+algorithm copies** (`ipcRenderer.send`, `ipcMain.handle`'s return value and `webContents.send` all use V8's ValueSerializer). On the wire they
+are plain JSON, so a core that knows nothing of this (a Rust or .NET core, the samples in `apps/hasher` and `apps/todo`) reads and writes
+ordinary data exactly as before: strings, finite numbers, booleans, `null`, arrays and objects are sent as they are. A value JSON cannot hold is
+an object with the key `"$vmapp"`:
+
+| Value | Wire |
+|---|---|
+| `undefined`, `NaN`, `±Infinity`, `-0` | `{"$vmapp":"undef"}`, `{"$vmapp":"num","v":"NaN"\|"Infinity"\|"-Infinity"\|"-0"}` |
+| `BigInt` | `{"$vmapp":"bigint","v":"123"}` |
+| `Date`, `RegExp` | `{"$vmapp":"date","v":<ms>\|null}`, `{"$vmapp":"regexp","s":<source>,"f":<flags>}` |
+| `ArrayBuffer`, typed arrays, `DataView` | `{"$vmapp":"ab","b":<base64>}`, `{"$vmapp":"view","t":"Uint8Array",…,"b":<the buffer>,"o":<offset>,"l":<length>}` |
+| `Map`, `Set` | `{"$vmapp":"map","e":[[k,v],…]}`, `{"$vmapp":"set","e":[v,…]}` |
+| `Error` (the standard types) | `{"$vmapp":"error","n":"TypeError","m":<message>,"s":<stack>,"c":<cause>}` |
+| `Number`, `String`, `Boolean`, `BigInt` objects | `{"$vmapp":"box","t":<type>,"v":<value>}` |
+| a second reference to an object already in the message (shared references, cycles) | `{"$vmapp":"ref","i":<n>}`, `n` counting the objects of the message in the order they are written |
+| a plain object that has its own key `"$vmapp"` | `{"$vmapp":"obj","v":{…}}` |
+
+The reference implementation is [`sdk/node/ipc-codec.js`](sdk/node/ipc-codec.js), used by the launcher (`hostlib/bridge.js`) and by the Node SDK; its
+tests compare it with Node's own `structuredClone`. Differences from the browser's algorithm: a Node `Buffer` is sent as a `Uint8Array` of exactly
+its bytes; holes in arrays become `undefined` and non-index properties of arrays are dropped; a `SharedArrayBuffer`, function, `Symbol`, `Promise`,
+`WeakMap`, `WeakSet` or `Proxy` is refused with `Error("<what> could not be cloned.")`, V8's own text. The host and the SDK reject a malformed value
+(an unknown kind, a bad reference, nesting deeper than 1000) and drop that one message, with a line in the app log; they never stop.
 
 ### Request ops (core → host)
 | `op` | `params` | `reply.result` |
@@ -572,12 +598,27 @@ The host enforces every permission. A denied request gets `reply.error = {messag
     invoke(channel, ...args) → Promise,      // → core ipcMain.handle
     send(channel, ...args),                  // → core ipcMain.on
     on(channel, listener) → unsubscribe(),   // ← core webContents.send
+    serve(routes) → boolean,                 // "these paths are my server's" ("Files the app's server serves" below)
+    served() → boolean,                      // does the launcher answer them itself?
     menu: { set(template) → Promise, onClick(listener) → unsubscribe() },   // the window's menus ("Menus" below)
     app: { id, name, version },
   };
-  window.vmapp.ipcRenderer = { invoke, send, on }   // alias that eases porting Electron renderers
+  window.vmapp.ipcRenderer = { invoke, send, on, once, addListener, removeAllListeners, eventNames, listenerCount, off, removeListener, sendSync }
+                                                    // Electron's ipcRenderer, as far as a context bridge allows (below)
   ```
-  Arguments and results must be JSON-serialisable.
+  Arguments and results are anything the structured clone algorithm copies, as with Electron's `ipcRenderer` (§6 "Values"): `Date`, `Map`,
+  `Set`, typed arrays, `BigInt`, `Error`, `undefined`, … A function or a `Symbol` is refused where it is sent with `… could not be cloned.`.
+  Cyclic values cannot cross the context bridge between the page and the preload (Electron's own limit, "recursion depth exceeded"); they can between the
+  launcher and the core.
+- **`invoke` errors.** A handler that throws (or has no handler) rejects the page's promise with
+  `Error invoking remote method '<channel>': <error>`, where `<error>` is `error.toString()` of what the handler threw (`Error: boom`,
+  `TypeError: bad type`), as Electron words it. The `Error` object is not the one that was thrown in the core.
+- **`window.vmapp.ipcRenderer`** is Electron's `ipcRenderer` for porting renderer code: `invoke`, `send`, `on(channel, (event, ...args))`,
+  `once`, `addListener`, `removeAllListeners([channel])`, `eventNames()`, `listenerCount(channel)`. `event` is `{sender: {send, invoke}, ports: []}`.
+  `on`, `once` and `addListener` return the function that removes the listener (Electron returns the emitter). `off` and `removeListener` throw an
+  error that says why instead of doing nothing: a listener given again is a new proxy on the other side of a context bridge, so it cannot be
+  matched by identity (Electron has the same limit for anything exposed with `contextBridge`); use the returned function or `removeAllListeners`.
+  `sendSync` throws an error that points to `invoke`: it would block the page while the VM answers.
 - The window title is `<window title> — <app name>`, set by the host. The loader marks app windows as sandboxed in
   its own UI (the app list); the app can't draw over that.
 - **Leave this page?** (proposed 2026-10-17, [docs/design/DEV-APPS.md](docs/design/DEV-APPS.md) §11 step 18). When a page vetoes its
@@ -586,6 +627,49 @@ The host enforces every permission. A denied request gets `reply.error = {messag
   you to confirm: changes you made may not be saved, **Leave** / **Stay** (Stay is the default and the answer to Escape). The page's
   own text is never shown. Leave unloads; Stay keeps the page. A veto of the same window within 1 s after Stay stays without asking,
   so a page cannot pile up questions. A window the app's core or the loader closes (the op `window.close` of §6, Stop, quit) is never asked about.
+
+### Files the app's server serves (proposed 2026-10-19, [docs/design/ELECTRON-PARITY.md](docs/design/ELECTRON-PARITY.md) stage 1)
+
+An app whose engine runs a server (a converted web app, VS Code's server, anything that answers HTTP in the VM) shows that server's pictures, fonts,
+sounds, style sheets and scripts in its page the way the original does: `<img src="/avatar/7.png">`, `background-image: url(/icons/x.svg)`,
+`@font-face`, `<video>`, `<link rel=stylesheet>`, an icon set with `element.style.backgroundImage`. This is Electron's own model, and it works the
+same way. In Electron the main process registers a protocol handler (`protocol.handle(scheme, handler)`): the handler gets a standard web `Request` and
+returns a standard web `Response` whose body is a stream; Chromium then loads everything under that scheme natively. Here the handler is the launcher's
+`vmapp-ui://<app id>/` handler, and the server is the app's core.
+
+- **Which paths.** The page names them: `vmapp.serve([{prefix, channel}])` (what `sdk/web/vmapp-fetch.js` sends for its `data-prefix` and
+  `data-route`), synchronously, as the first thing the page does. A prefix starts with `/`, names something (the whole origin is refused), has no query,
+  fragment, space or dot segment, is at most 200 characters; at most 16 routes; a channel is a short name. It returns `true` when the launcher answers
+  those paths itself, `false` when it does not (an older launcher, an app that is not running, or a development build with
+  `VMAPP_TEST_NO_NATIVE_SERVE=1`); `served()` returns the last answer. Routes belong to one run of the app.
+- **Package first.** A request is answered from the app's package when the manifest lists the file, as always (§7, INV-B4): a file whose hash does not
+  match is refused and is never replaced by what the core says. Only a path the package does not have, under an announced prefix, goes to the core.
+- **The core is asked as the page asks.** The launcher sends the request over the same bridge protocol as `vmapp-fetch.js` (`fetch:open`, `fetch:part`,
+  `fetch:ack`, `fetch:abort`, events `fetch:ev`; `sdk/node/http-bridge.js` is the core half), by way of one of the app's open windows, and reads the
+  core's events before they reach the window (the window never sees them; ids of the launcher's requests start with `h`, a page's own with `f`). So the
+  core's bridge applies unchanged: its allowed paths and methods, loopback only, request headers a page may not set, a body limit, 64 requests at once,
+  streamed answers with flow control, abort on cancel. The launcher itself keeps at most 24 in flight and queues the rest (at most 4000).
+- **Electron's contract for the answer.** Status, status text and headers are the server's; the body is a stream (`Range` goes to the server and a
+  `206` with `Content-Range` comes back, which is what `<video>` and `<audio>` need: the scheme is registered with `stream`); an empty body, a `404`
+  with a body, `HEAD` and any method the core allows work; a `3xx` with a `Location` is a real redirect that the page follows (to another path of
+  the same scheme); the `Content-Type` is the server's and is not repaired (as in Electron: a missing one is `text/html`, and Chromium sniffs
+  pictures, so an SVG needs `image/svg+xml`); an HTML answer carries the window's CSP. **A failure is a network error** (`Response.error()`, as in
+  Electron): the app is not running, the server is down, too many requests are waiting. `fetch()` rejects with "Failed to fetch" and an `<img>` fires
+  `error`; the reason is in the launcher's log.
+- **When the page has not announced yet.** Chromium's preload scanner asks for the `<img>` and `<link>` that follow a blocking script while that script
+  (`vmapp-fetch.js`) is still loading, and keeps a refusal. Electron has no such window because its handler exists before any page. So, in a run where
+  nothing was announced yet, a request for a file the package lacks waits for the announcement, at most 2.5 s, once per run.
+- **What it adds, and what it does not.** The page could already `fetch()` these paths over the bridge, so this widens nothing: the origin is the app's
+  own, nothing leaves the VM, and the window still has no network (`connect-src 'none'`, the request filter). A script served this way is the app's
+  own code, like the package.
+- **Fallback for a launcher that cannot** (and for the first run of an older package): when `serve()` is missing or answers `false`, `vmapp-fetch.js`
+  makes pictures work from the page: it fetches each file over the bridge and puts a `data:` URL (images, fonts) or a `blob:` URL (audio, video, an
+  image above 16 MiB) in its place in `<img>`, `srcset`, `<picture>`, `<video poster>`, SVG `<image>`, `<input type=image>`, style sheets (rules, `insertRule`,
+  `replaceSync`, adopted sheets, shadow roots), inline styles and `<link rel=stylesheet>`; it sniffs a missing or generic `Content-Type` from the bytes;
+  it follows redirects; and a file it cannot show stays as it was, with one console warning and the `error` event the page would have got. The two
+  layers are tested against the same page (`tests/apps/media-probe-ui.mjs`, both modes).
+- **Not covered by either:** `new FontFace(name, "url(…)")`, `@import url()` inside a served style sheet, `<svg><use href="sprite.svg#x">`, `<object>`,
+  `<embed>`, `<iframe>`.
 
 ### Menus (proposed 2026-10-17, [docs/design/DEV-APPS.md](docs/design/DEV-APPS.md) C9)
 
@@ -1679,8 +1763,10 @@ checksum) makes the whole file unusable: nothing is offered.
 
 ### When the launcher asks
 
-- A little after it starts (and at most once every 6 hours across launches), then once a day while it runs, **unless the user turned
-  "Check for launcher updates" off** (Host Capabilities window; the preference `checkForUpdates`, on by default).
+- A few seconds after **every** start-up, then **at least once a day** while it runs: every 15 minutes it looks whether a day has
+  passed since the last answer, so a Mac that slept does not skip a day, and a check that could not reach the server (no network) is
+  tried again at the next look. The time of the last answer is kept in `launcher-update.json`. **Unless the user turned "Check for
+  launcher updates" off** (Host Capabilities window; the preference `checkForUpdates`, on by default).
 - Whenever the user chooses **Check for Updates…** in the launcher's first menu. That always asks, and always shows an answer.
 
 The request is a plain `GET`: no query (not even the running version), no identifier, no cookie, no custom user agent, no list of
@@ -1700,8 +1786,16 @@ A card at the top of the library: *Launcher 0.2.0 is available*, what the user h
 | **Later** | closes the card; the next check offers it again |
 | **Skip this version** | not offered again by the automatic checks (kept in `launcher-update.json`); a newer version is; a manual check still shows it |
 | **Download** (instead of Update now) | on a copy that cannot update itself (a development build, or one signed ad hoc): opens the download page after asking |
+| **Move to Applications** (instead of Update now) | on a copy that cannot replace itself *where it is*: see below. Asks first if apps are running (it stops them), then Electron copies the launcher into the Applications folder and starts it from there |
 
-Nothing is downloaded before **Update now**, and nothing restarts before **Restart to update**.
+Nothing is downloaded before **Update now**, and nothing restarts before **Restart to update** (or **Move to Applications**).
+
+**Where the launcher sits.** An app opened straight from Downloads, or from a disk image, is run by macOS from a temporary read-only copy
+("app translocation"), and Squirrel.Mac then refuses ("Cannot update while running on a read-only volume"). The launcher checks this at
+start (its path contains `/AppTranslocation/`, or the folder holding it cannot be written) and says so on the card, in place of an **Update
+now** that is bound to fail: *macOS is running this copy from a temporary, read-only place…*, with **Move to Applications**. The same words
+replace the raw error if Squirrel reports it anyway. If moving fails (a copy is already open in Applications) the card says so and tells
+the user to drag the launcher into Applications in Finder.
 
 ### What is trusted, and what a lying server could do
 
@@ -1747,7 +1841,7 @@ app.on('window-all-closed', () => app.quit());           // the default when no 
 |---|---|
 | `app` | `whenReady()`, `isReady()`, `on('ready' \| 'window-all-closed' \| 'before-quit')`, `quit()`, `getName()`, `getVersion()`, `getPath('userData' \| 'temp' \| 'home')` (→ `/data`, `/tmp`, `/data`) |
 | `BrowserWindow` | `new BrowserWindow({width,height,minWidth,minHeight,title,resizable,webPreferences:{devTools}})` (`devTools` is a boolean, default `false`, sent as `devTools` in `window.create` (§6, §7); every other `webPreferences` key is ignored, with one warning in the core log per run); `loadFile(entry)` (creates the window on the host; returns a Promise); `webContents.send(channel, …args)`; `setTitle`, `focus`, `close`; `on('closed' \| 'focus' \| 'blur')`; `id`; static `getAllWindows()`, `fromId(id)` |
-| `ipcMain` | `handle(channel, fn)`, `handleOnce`, `removeHandler`, `on(channel, fn)`, `off`. `event = {sender: win.webContents, senderWindow: win}` |
+| `ipcMain` | Electron's: an `EventEmitter` whose events are the channels the page sends on (`on`, `once`, `off`, `addListener`, `removeListener`, `removeAllListeners`, `eventNames`, `listenerCount`, … all of EventEmitter; a channel named `error` does not throw when nobody listens), plus `handle(channel, fn)` (a second handler throws `Attempted to register a second handler for '<channel>'`; a non-function throws `Expected handler to be a function, but found type '<type>'`), `handleOnce`, `removeHandler`. `event` is Electron's `IpcMainEvent` / `IpcMainInvokeEvent`: `{type:'frame', processId, frameId, sender: win.webContents, preventDefault()}` plus, for `on`, `reply(channel, ...args)` and `ports: []`; `senderWindow: win` is ours. `event.returnValue` and `sendSync` do not exist (§7). Listeners run in the order they were added; one that throws is logged and the ones after it do not run (EventEmitter), as is an `async` one that rejects |
 | `dialog` | `showOpenDialog([win], {title, properties:['openFile'\|'openDirectory'\|'multiSelections']})` → `{canceled, filePaths}`; `showSaveDialog([win], {title, defaultPath})` → `{canceled, filePath}`; `showMessageBox([win], {type, message, detail, buttons})` → `{response}` |
 | `shell` | `openExternal(url)` → Promise<bool> |
 | `folders` | `{<name>: path \| null}` from the user's grants (filled before `ready`) |
@@ -1755,7 +1849,9 @@ app.on('window-all-closed', () => app.quit());           // the default when no 
 
 The SDK connects to `$VMAPP_SOCKET`. It is a **server**: it listens there, and the host's bridge connection arrives
 through the guest's port 1024. One connection per app run. Errors thrown in `handle` reach the renderer as rejected
-promises with the message only (no stack).
+promises (`Error invoking remote method '<channel>': <error.toString()>`, no stack, §7) and are written to the core log, as Electron prints them to
+the console. Values cross as Electron's IPC carries them (§6 "Values"): a handler may return a `Uint8Array`, a `Date`, a `Map`, `undefined`, …, and
+`webContents.send` throws, at the call, for a value that cannot be cloned.
 
 **Network needs no SDK call.** `fetch()`, `http` and `https` in the core go through the proxy of §8.3 by themselves
 (`NODE_USE_ENV_PROXY=1`), for the hosts the user granted; every other host fails with a `403` from the proxy.

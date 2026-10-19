@@ -355,10 +355,14 @@ When a newer version of the launcher exists, a card appears at the top of its wi
   folder choices and their data are kept. Running apps stop when the launcher restarts, so finish what you are doing first.
 - **Later** hides the card until the next check; **Skip this version** hides it until an even newer version exists.
 
-The launcher asks about once a day, and **Check for Updates…** in its menu asks at once ("You're up to date" if there is nothing new). Turn the
+The launcher asks every time it starts and at least once a day while it runs, and **Check for Updates…** in its menu asks at once ("You're up to date" if there is nothing new). Turn the
 automatic check off in **Host Capabilities** (*Check for launcher updates automatically*); the menu item still works. The check asks one address on
 vmapp.dev and tells it nothing about you ([SECURITY.md](SECURITY.md#updates-of-the-launcher-itself)). The list of changes is also on the website: the
 [Changelog](../CHANGELOG.md) and the Download page.
+
+**Keep the launcher in your Applications folder.** If you open it straight from Downloads, macOS runs it from a temporary read-only copy, which cannot
+replace itself; the card then says so and offers **Move to Applications** (it asks first if apps are running, copies the launcher into Applications and
+opens it from there; you can then delete the one in Downloads). You can also drag it into Applications yourself.
 
 A launcher you built yourself (or one that is not signed with the maintainers' Developer ID) cannot update in place; its card shows
 **Download** instead, which opens the download page.

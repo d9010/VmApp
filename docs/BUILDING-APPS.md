@@ -159,13 +159,15 @@ app.on('window-all-closed', () => app.quit());      // also the default
 |---|---|
 | `app` | `whenReady()`, `isReady()`, `on('ready' / 'window-all-closed' / 'before-quit')`, `quit()`, `getName()`, `getVersion()`, `getPath('userData' / 'temp' / 'home')` |
 | `BrowserWindow` | `new BrowserWindow({width, height, minWidth, minHeight, title, resizable, webPreferences: {devTools}})`, `loadFile(entry)`, `webContents.send(channel, …args)`, `setTitle`, `focus`, `close`, `on('closed' / 'focus' / 'blur')`, `id`, `BrowserWindow.getAllWindows()`, `BrowserWindow.fromId(id)` |
-| `ipcMain` | `handle(channel, (event, …args) => result)`, `handleOnce`, `removeHandler`, `on(channel, (event, …args) => {})`, `off` |
+| `ipcMain` | Electron's: an `EventEmitter` of channels (`on`, `once`, `off`, `removeAllListeners`, `eventNames`, …) plus `handle(channel, (event, …args) => result)`, `handleOnce`, `removeHandler`. `event.reply(channel, …args)` answers the window that sent the message |
 | `dialog` | `showOpenDialog([win], {title, properties: ['openFile' / 'openDirectory' / 'multiSelections'], access: 'read' / 'readwrite'})`, `showSaveDialog([win], {title, defaultPath})`, `showMessageBox([win], {type, message, detail, buttons})` |
 | `shell` | `openExternal(url)` (`https:` only; the user confirms) |
 | `folders` | `{ <name>: path or null }` from the user's choices |
 
-Handler arguments and return values must be JSON-serialisable. An error thrown in a handler rejects the UI's
-promise with the error's message.
+Arguments and return values can be anything Electron's IPC carries (the structured clone algorithm): strings, numbers,
+objects, arrays, `Date`, `Map`, `Set`, typed arrays (a `Uint8Array` is how binary data crosses), `BigInt`, `Error`,
+`undefined`. A function or a `Symbol` is refused with `… could not be cloned.`. An error thrown in a handler rejects the UI's
+promise with `Error invoking remote method '<channel>': <error>` (for example `… 'files:list': Error: no such folder`), as in Electron.
 
 **DevTools.** As in Electron, DevTools are off unless the window asks for them:
 `new BrowserWindow({ …, webPreferences: { devTools: true } })`. The user can then open them from the **View** menu
@@ -214,7 +216,10 @@ const stop = window.vmapp.on('progress', (n) => bar.value = n);   // ← webCont
 window.vmapp.app;                                             // { id, name, version }
 ```
 
-`window.vmapp.ipcRenderer` has the same three functions, if you're porting Electron renderer code.
+`window.vmapp.ipcRenderer` is Electron's `ipcRenderer` for porting renderer code: `invoke`, `send`, `on(channel, (event, …args) => …)`, `once`,
+`addListener`, `removeAllListeners([channel])`, `eventNames()`, `listenerCount(channel)`. `on` and `once` return the function that removes the
+listener (not the emitter). `off` and `removeListener` throw an error that says why: a function given again cannot be recognised across the
+context bridge, in Electron either. `sendSync` throws, pointing to `invoke`: it would freeze the page while the VM answers.
 
 **Rules the window enforces** (they exist to protect users):
 

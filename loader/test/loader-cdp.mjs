@@ -512,8 +512,17 @@ async function main() {
   assert.equal(await cardState(lib), 'running');
 
   step('renderer: sandbox, window.vmapp surface, CSP, navigation');
-  assert.deepEqual(await appWin.eval('Object.keys(window.vmapp).sort()'), ['app', 'invoke', 'ipcRenderer', 'menu', 'on', 'send']);
-  assert.deepEqual(await appWin.eval('Object.keys(window.vmapp.ipcRenderer).sort()'), ['invoke', 'on', 'send']);
+  assert.deepEqual(await appWin.eval('Object.keys(window.vmapp).sort()'), ['app', 'invoke', 'ipcRenderer', 'menu', 'on', 'send', 'serve', 'served']);
+  assert.deepEqual(await appWin.eval('Object.keys(window.vmapp.ipcRenderer).sort()'), ['addListener', 'eventNames', 'invoke', 'listenerCount', 'off', 'on', 'once', 'removeAllListeners', 'removeListener', 'send', 'sendSync']);
+  // "these paths are my server's" (SPEC 7 "Files the app's server serves"): validated by the launcher, scoped to this app, and only a boolean comes back
+  assert.equal(await appWin.eval('window.vmapp.served()'), false, 'nothing announced yet');
+  for (const bad of [[], [{ prefix: '/', channel: 'fetch' }], [{ prefix: '/a/../b', channel: 'fetch' }], [{ prefix: '/ok/', channel: 'x y' }], 'x', null]) {
+    assert.equal(await appWin.eval(`window.vmapp.serve(${JSON.stringify(bad)})`), false, `refused: ${JSON.stringify(bad)}`);
+  }
+  assert.equal(await appWin.eval(`window.vmapp.serve([{ prefix: '/served-by-the-core/', channel: 'fetch' }])`), true, 'a good route is accepted by this launcher');
+  assert.equal(await appWin.eval('window.vmapp.served()'), true);
+  assert.equal(await appWin.eval('typeof window.vmapp.serve.call'), 'function');
+  assert.match(await appWin.eval(`(() => { try { window.vmapp.serve(() => 1); return 'accepted'; } catch (e) { return e.message; } })()`), /routes must be JSON-serialisable/, 'something that is not data is refused in the page, with a clear message');
   assert.deepEqual(await appWin.eval('Object.keys(window.vmapp.menu).sort()'), ['onClick', 'set']);
   assert.deepEqual(await appWin.eval('window.vmapp.app'), { id: ID, name: 'Loader Test', version: '1.0.0' });
   assert.equal(await appWin.eval('typeof window.require'), 'undefined');
@@ -563,7 +572,7 @@ async function main() {
   step('bridge: invoke round trip, rejection, alias, send/emit, core-supplied folders');
   assert.deepEqual(await appWin.eval(`window.vmapp.invoke('echo', 1, 'two', {a: [3, null]})`), [1, 'two', { a: [3, null] }]);
   assert.deepEqual(await appWin.eval(`window.vmapp.ipcRenderer.invoke('echo', 5)`), [5]);
-  assert.equal(await appWin.eval(`window.vmapp.invoke('fail').then(() => 'resolved', (e) => e.message)`), 'boom from the core', 'core errors arrive as the message only');
+  assert.equal(await appWin.eval(`window.vmapp.invoke('fail').then(() => 'resolved', (e) => e.message)`), "Error invoking remote method 'fail': Error: boom from the core", "a handler's error arrives as Electron words it");
   assert.match(await appWin.eval(`window.vmapp.invoke('nope').then(() => 'resolved', (e) => e.message)`), /No handler registered for 'nope'/);
   assert.deepEqual(await appWin.eval('window.__hello').catch(() => null), null, 'a reloaded page starts without the old emit');
   assert.deepEqual(await appWin.eval(`window.vmapp.invoke('folders')`), { work: '/host/f-work', extra: null });
@@ -571,6 +580,84 @@ async function main() {
   await waitFor(() => appWin.eval(`window.__ticks.some((t) => t.n === 7 && t.from === 'core')`), { what: 'emit from the core' });
   // alias listener gets (event, ...args)
   assert.equal(await appWin.eval(`new Promise((res) => { const off = window.vmapp.ipcRenderer.on('tick', (ev, t) => { off(); res([typeof ev, t.n]); }); window.vmapp.send('tick-me', 8); }).then((r) => r.join(':'))`), 'object:8');
+
+  step("ipcRenderer / ipcMain: Electron's contract (error text, structured clone, event.reply, once, removeAllListeners)");
+  // spec/api-ipc-spec.ts "invoke": errors reach the renderer as `Error invoking remote method '<channel>': <error.toString()>`
+  assert.equal(await appWin.eval(`window.vmapp.invoke('throw-type').then(() => 'resolved', (e) => e.message)`), "Error invoking remote method 'throw-type': TypeError: bad type from the core");
+  assert.equal(await appWin.eval(`window.vmapp.invoke('nope').then(() => 'resolved', (e) => e.message)`), "Error invoking remote method 'nope': Error: No handler registered for 'nope'");
+  assert.equal(await appWin.eval(`window.vmapp.invoke('nope').then(() => 'resolved', (e) => e instanceof Error)`), true);
+  // spec/api-ipc-renderer-spec.ts: Date, Buffer/typed arrays, shared references, cycles; the other direction too (core -> page)
+  assert.deepEqual(
+    await appWin.eval(`window.vmapp.invoke('typed').then((r) => ({
+      u8: r[0] instanceof Uint8Array && [...r[0]].join(),
+      date: r[1] instanceof Date && r[1].getTime(),
+      map: r[2] instanceof Map && r[2].get('k') instanceof Set && [...r[2].get('k')].join(),
+      undef: r[3] === undefined && r.length === 8,
+      big: typeof r[4] === 'bigint' && String(r[4]),
+      nan: Number.isNaN(r[5]),
+      negZero: Object.is(r[6], -0),
+      err: r[7] instanceof Error && r[7].message,
+    }))`),
+    { u8: '1,2,3', date: 86400000, map: '1,2', undef: true, big: '12345678901234567890', nan: true, negZero: true, err: 'inner' },
+    'the core returns typed arrays, Date, Map, Set, undefined, BigInt, NaN, -0 and Error, as Electron would',
+  );
+  // (a cycle cannot cross the context bridge between the page and the preload, in either direction: Electron's own limit, "recursion depth
+  // exceeded". Between the launcher and the core cycles and shared references work: tests/unit/bridge.test.js, tests/unit/ipc-codec.test.js)
+  assert.match(await appWin.eval(`window.vmapp.invoke('typed-cycle').then(() => 'resolved', (e) => e.message)`), /recursion depth exceeded/);
+  assert.match(await appWin.eval(`(() => { const c = [5]; c.push(c); try { return window.vmapp.invoke('echo', c).then(() => 'resolved', (e) => e.message); } catch (e) { return e.message; } })()`), /recursion depth exceeded/);
+  assert.deepEqual(
+    await appWin.eval(`(async () => {
+      const child = { hello: 'world' };
+      const foo = { name: 'foo', child };
+      const bar = { name: 'bar', child };
+      const r = await window.vmapp.invoke('echo', new Uint8Array([9, 8]), new Date(5), new Map([[1, { a: 2 }]]), undefined, 7n, -0, [foo, bar]);
+      return { u8: r[0] instanceof Uint8Array && [...r[0]].join(), date: r[1].getTime(), map: r[2].get(1).a, undef: r[3] === undefined, big: r[4] === 7n, negZero: Object.is(r[5], -0), shared: r[6][0].child.hello + r[6][1].child.hello };
+    })().catch((e) => String(e))`),
+    { u8: '9,8', date: 5, map: 2, undef: true, big: true, negZero: true, shared: 'worldworld' },
+    'the page sends the same kinds of values to the core, which echoes them back',
+  );
+  // a value that cannot be cloned is refused where it is sent, with Electron's text
+  const refused = await appWin.eval(`(async () => {
+    const out = {};
+    try { window.vmapp.send('x', { f() {} }); out.send = 'sent'; } catch (e) { out.send = e.message; }
+    out.invoke = await window.vmapp.invoke('echo', { f() {} }).then(() => 'resolved', (e) => e.message);
+    return out;
+  })()`);
+  assert.match(refused.send, /could not be cloned\.$/, JSON.stringify(refused));
+  assert.match(refused.invoke, /could not be cloned\.$/, JSON.stringify(refused));
+  // ipcMain.on(...) can be replied to: event.reply (spec/api-ipc-main-spec.ts)
+  assert.equal(await appWin.eval(`new Promise((res) => { const off = window.vmapp.on('replied', (v) => { off(); res(v); }); window.vmapp.send('reply-me', 'hello'); })`), 'hello');
+  // ipcRenderer: once, removal, eventNames/listenerCount (spec/api-ipc-renderer-spec.ts "removeAllListeners")
+  const l = await appWin.eval(`(async () => {
+    const ipc = window.vmapp.ipcRenderer;
+    const base = ipc.listenerCount('tick');
+    const got = [];
+    ipc.once('tick', (ev, t) => got.push('once' + t.n));
+    const off = ipc.on('tick', (ev, t) => got.push('on' + t.n));
+    const counts = [base, ipc.listenerCount('tick')];
+    window.vmapp.send('tick-me', 21);
+    await new Promise((r) => setTimeout(r, 700));
+    window.vmapp.send('tick-me', 22);
+    await new Promise((r) => setTimeout(r, 700));
+    off();
+    const afterOff = ipc.listenerCount('tick');
+    let offErr = null; try { ipc.off('tick', () => 1); } catch (e) { offErr = e.message; }
+    let removeErr = null; try { ipc.removeListener('tick', () => 1); } catch (e) { removeErr = e.message; }
+    let syncErr = null; try { ipc.sendSync('x'); } catch (e) { syncErr = e.message; }
+    ipc.on('zzz-1', () => {}); ipc.addListener('zzz-2', () => {});
+    const names = ipc.eventNames();
+    ipc.removeAllListeners('zzz-1');
+    const afterOne = ipc.eventNames();
+    ipc.removeAllListeners('zzz-2');
+    return { got, counts, afterOff, offErr, removeErr, syncErr, has: [names.includes('zzz-1'), names.includes('zzz-2')], afterOne: [afterOne.includes('zzz-1'), afterOne.includes('zzz-2')], gone: !ipc.eventNames().includes('zzz-2'), appOwn: ipc.listenerCount('tick') === base };
+  })()`);
+  assert.deepEqual(l.got, ['once21', 'on21', 'on22'], 'once runs once; on runs every time; both in the order they were added');
+  assert.deepEqual(l.counts, [l.counts[0], l.counts[0] + 2]);
+  assert.equal(l.afterOff, l.counts[0] + 0, 'the function on() returned removes the listener (and the once one has gone)');
+  assert.match(l.offErr, /cannot be matched by identity across the context bridge/);
+  assert.match(l.removeErr, /cannot be matched by identity across the context bridge/);
+  assert.match(l.syncErr, /sendSync is not available.*invoke/);
+  assert.deepEqual([l.has, l.afterOne, l.gone, l.appOwn], [[true, true], [false, true], true, true], 'removeAllListeners(channel) removes only that channel');
 
   step('folders: granted work folder (read & write)');
   assert.deepEqual(await appWin.eval(`window.vmapp.invoke('list-folder', 'work')`), ['seed.txt']);
@@ -4664,8 +4751,8 @@ async function runY() {
     Y = startLoader({ home: homeY, name: 'loader-Y2', env });
     lib = await waitTarget(isLibrary, 'library (Y, second run)');
     await sleep(2500);
-    assert.equal(hits.length, hitsBefore, 'the last check was minutes ago: the launcher does not ask again at start-up');
-    assert.equal(await phaseY(lib), null, 'and shows nothing');
+    assert.equal(hits.length, hitsBefore + 1, 'every launch asks, even minutes after the last check');
+    assert.equal(await phaseY(lib), null, 'but the skipped version shows nothing');
     clickMenuY('app-check-updates'); // (a new menu probe dir state: the probe re-creates it)
     await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'a manual check shows a skipped version anyway', timeout: 15000 });
     await click(lib, '[data-action="update-later"]');
@@ -4707,9 +4794,26 @@ async function runY() {
     await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the menu check still works', timeout: 15000 });
     assert.equal(hits.length, hitsOff + 1);
 
+    step('Y: a copy that macOS runs from a read-only place (opened from Downloads) says so instead of failing at "Update now", and offers Move to Applications');
+    await killLoader(Y, 'SIGTERM', 30000);
+    const moveLogY = path.join(ROOT, 'move-y.log');
+    fs.rmSync(moveLogY, { force: true });
+    Y = startLoader({ home: homeY, name: 'loader-Y4', env: { ...env, VMAPP_TEST_INSTALL_BLOCK: 'translocated', VMAPP_TEST_MOVE_LOG: moveLogY } });
+    lib = await waitTarget(isLibrary, 'library (Y, translocated)');
+    clickMenuY('app-check-updates');
+    await waitFor(async () => (await phaseY(lib)) === 'available', { what: 'the update card (translocated)', timeout: 15000 });
+    assert.match(await text(lib, '[data-role="update-block"]'), /temporary, read-only place.*opened straight from Downloads.*Move it to your Applications folder/);
+    assert.equal(await exists(lib, '[data-action="update-install"]'), false, 'no "Update now" that is bound to fail');
+    assert.equal(await text(lib, '[data-action="update-move"]'), 'Move to Applications');
+    assert.equal(await exists(lib, '[data-action="update-download"]'), true, 'Download is still offered');
+    await shot2x(lib, 'update-translocated');
+    await click(lib, '[data-action="update-move"]');
+    await waitFor(() => fs.existsSync(moveLogY) && fs.readFileSync(moveLogY, 'utf8') === 'move\n', { what: 'the move was asked for (the test records it instead of doing it)' });
+    assert.equal(logY('loader-Y4').includes('moving the launcher to the Applications folder'), true, 'and it is logged');
+
     step('Y: quit cleanly');
     await killLoader(Y, 'SIGTERM', 30000);
-    for (const n of ['loader-Y1', 'loader-Y2', 'loader-Y3']) assert.ok(!logY(n).includes('unhandled rejection'), `${n} had no unhandled rejection`);
+    for (const n of ['loader-Y1', 'loader-Y2', 'loader-Y3', 'loader-Y4']) assert.ok(!logY(n).includes('unhandled rejection'), `${n} had no unhandled rejection`);
   } finally {
     await new Promise((r) => server.close(r));
   }

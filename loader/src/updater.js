@@ -6,14 +6,18 @@
 //     refuses a new app that is not signed by the same Developer ID as the running one, so a lying feed can at worst point at a
 //     zip that is refused. This file never downloads, unzips, signs or spawns anything itself (INV-A1, INV-G3).
 //
-// When it asks: a little after start-up (at most once every 6 hours across launches), then once a day while the launcher runs,
-// unless the user turned "Check for launcher updates" off (src/prefs.js); and whenever the user chooses "Check for Updates…".
+// When it asks: a few seconds after EVERY start-up, then at least once a day while the launcher runs (it looks every 15 minutes whether a
+// day has passed since the last answer, so a Mac that slept does not skip a day, and a check that failed for want of a network is tried
+// again then), unless the user turned "Check for launcher updates" off (src/prefs.js); and whenever the user chooses "Check for Updates…".
 // Nothing is downloaded until the user presses "Update now" and nothing restarts until they press "Restart to update".
 //
 //   phase: idle | checking | available | downloading | ready | upToDate | error
 //   `available` carries the cleaned feed record (version, notes, changes, links); `error` carries a sentence for the user.
 // A launcher that cannot update itself (a development build, or one signed ad hoc) still tells the user what is available and
 // offers "Download" (the page on the website) instead of "Update now".
+// A launcher that sits where it cannot replace itself (macOS runs an app opened from Downloads from a temporary read-only copy, "app
+// translocation"; or it is on a disk image or a read-only volume) says so, before "Update now" can fail, and offers "Move to Applications"
+// (Electron's app.moveToApplicationsFolder, given in as `moveToApplications`; the launcher restarts from there).
 
 const fs = require('fs');
 const path = require('path');
@@ -21,9 +25,9 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { fetchLauncherFeed, launcherUpdateState, LAUNCHER_FEED_URL } = require('../../hostlib/updates');
 
-const STARTUP_DELAY_MS = 20 * 1000;
-const RECHECK_MS = 24 * 3600 * 1000;
-const MIN_GAP_MS = 6 * 3600 * 1000;
+const STARTUP_DELAY_MS = 5 * 1000; // after every start-up
+const RECHECK_MS = 24 * 3600 * 1000; // at least this often while it runs
+const TICK_MS = 15 * 60 * 1000; // how often it looks whether RECHECK_MS has passed since the last answer
 const DOWNLOAD_PAGE = 'https://vmapp.dev/download';
 const CHANGELOG_PAGE = 'https://vmapp.dev/docs/changelog';
 
@@ -38,6 +42,13 @@ function compareDotted(a, b) {
   return 0;
 }
 
+/** What the user is told when this copy cannot replace itself where it is. */
+const BLOCK_TEXT = {
+  translocated:
+    'macOS is running this copy from a temporary, read-only place (it does that for apps opened straight from Downloads), so it cannot replace itself. Move it to your Applications folder and it can update.',
+  readonly: 'This copy is on a read-only disk, or in a folder you cannot change, so it cannot replace itself. Move it to your Applications folder and it can update.',
+};
+
 class LauncherUpdater extends EventEmitter {
   /**
    * @param {object} o
@@ -50,6 +61,9 @@ class LauncherUpdater extends EventEmitter {
    * @param {boolean} [o.dev]        dev build: addresses on this Mac are accepted in the feed
    * @param {string} [o.osVersion]   this Mac's macOS version (process.getSystemVersion()), for the feed's minimumOS
    * @param {number} [o.startupDelayMs]
+   * @param {''|'translocated'|'readonly'} [o.installBlock]  why this copy cannot replace itself where it is ('' = it can)
+   * @param {(() => Promise<void>)|null} [o.moveToApplications]  moves this app to the Applications folder and restarts it from there
+   * @param {number} [o.tickMs]
    */
   constructor(o) {
     super();
@@ -70,7 +84,10 @@ class LauncherUpdater extends EventEmitter {
     this.update = null;
     this.error = '';
     this.manual = false;
-    this.canInstall = !!this.autoUpdater && this.packaged && process.platform === 'darwin';
+    this.installBlock = o.installBlock || '';
+    this.moveFn = typeof o.moveToApplications === 'function' ? o.moveToApplications : null;
+    this.tickMs = o.tickMs === undefined ? TICK_MS : o.tickMs;
+    this.canInstall = !!this.autoUpdater && this.packaged && process.platform === 'darwin' && !this.installBlock;
     this.timer = null;
     this.interval = null;
     this.wired = false;
@@ -92,6 +109,8 @@ class LauncherUpdater extends EventEmitter {
       update: this.update,
       error: this.error,
       canInstall: this.canInstall,
+      installBlock: this.installBlock,
+      canMove: !!this.installBlock && !!this.moveFn,
       manual: this.manual,
       autoCheck: this.autoEnabled(),
     };
@@ -107,7 +126,11 @@ class LauncherUpdater extends EventEmitter {
   }
 
   // ------------------------------------------------------------------------------------------------ schedule
-  /** Starts the automatic checks: one a little after start-up (unless one ran recently), then one a day. */
+  /**
+   * Starts the automatic checks: one a few seconds after every start-up, then one whenever a day has passed since the last answer.
+   * The answer time is kept in launcher-update.json; it is set only by a check that got an answer, so a check that could not reach the
+   * server is tried again at the next tick instead of waiting a day.
+   */
   start() {
     if (this.timer || this.interval) return;
     const run = () => {
@@ -115,8 +138,10 @@ class LauncherUpdater extends EventEmitter {
     };
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.now() - this.saved.lastCheck >= MIN_GAP_MS) run();
-      this.interval = setInterval(run, RECHECK_MS);
+      run();
+      this.interval = setInterval(() => {
+        if (this.now() - this.saved.lastCheck >= RECHECK_MS) run();
+      }, this.tickMs);
       if (this.interval.unref) this.interval.unref();
     }, this.startupDelayMs);
     if (this.timer.unref) this.timer.unref();
@@ -169,6 +194,7 @@ class LauncherUpdater extends EventEmitter {
     // from `available`, or again after a download that failed (the update is still known and this copy can update itself)
     const again = this.phase === 'error' && this.update && this.canInstall;
     if ((this.phase !== 'available' && !again) || !this.update) throw new Error('There is no update to install.');
+    if (this.installBlock) throw new Error('This copy of the launcher is where it cannot replace itself. Move it to the Applications folder first.');
     if (!this.canInstall) throw new Error('This copy of the launcher cannot update itself. Use Download to get the new version.');
     this._wire();
     this._set('downloading', { update: this.update });
@@ -205,11 +231,33 @@ class LauncherUpdater extends EventEmitter {
     this.log('warn', `launcher update could not be installed: ${raw}`);
     // an unsigned or ad-hoc signed copy cannot be replaced in place: say so and offer the download page instead
     const signature = /signature|code sign|codesign|not signed|unsigned/i.test(raw);
-    if (signature) this.canInstall = false;
+    // Squirrel.Mac: "Cannot update while running on a read-only volume" (an app opened from Downloads or a disk image)
+    const location = /read-only volume|translocat/i.test(raw);
+    if (signature || location) this.canInstall = false;
+    if (location && !this.installBlock) this.installBlock = 'translocated';
     const text = signature
       ? 'This copy of the launcher is not signed in a way that lets it update itself. Download the new version instead.'
-      : `The update could not be downloaded or checked: ${raw.slice(0, 300)}`;
+      : location
+        ? BLOCK_TEXT[this.installBlock]
+        : `The update could not be downloaded or checked: ${raw.slice(0, 300)}`;
     this._set('error', { error: text, update: this.update });
+  }
+
+  /**
+   * "Move to Applications": for a copy that cannot replace itself where it is. `prepare` (async) asks the user about running apps and
+   * stops them; false from it cancels. Electron then copies the app into the Applications folder and starts it from there (this copy quits).
+   */
+  async moveToApplications(prepare) {
+    if (!this.installBlock || !this.moveFn) throw new Error('This copy of the launcher cannot be moved from here. Drag it into the Applications folder in Finder.');
+    if (prepare && (await prepare()) === false) return this.state();
+    this.log('info', `moving the launcher to the Applications folder (it ran from a ${this.installBlock} place)`);
+    try {
+      await this.moveFn();
+    } catch (e) {
+      this.log('warn', `move to Applications: ${e.message}`);
+      return this._set('error', { error: `The launcher could not move itself: ${String(e.message || e).slice(0, 300)} Drag it into the Applications folder in Finder instead.`, update: this.update });
+    }
+    return this.state();
   }
 
   /** "Restart to update": `prepare` (async) asks the user about running apps and stops them; false from it cancels. */
@@ -277,4 +325,4 @@ class LauncherUpdater extends EventEmitter {
   }
 }
 
-module.exports = { LauncherUpdater, compareDotted, STARTUP_DELAY_MS, RECHECK_MS, MIN_GAP_MS, DOWNLOAD_PAGE, CHANGELOG_PAGE };
+module.exports = { LauncherUpdater, compareDotted, STARTUP_DELAY_MS, RECHECK_MS, TICK_MS, BLOCK_TEXT, DOWNLOAD_PAGE, CHANGELOG_PAGE };

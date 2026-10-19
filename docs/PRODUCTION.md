@@ -158,8 +158,8 @@ of the launcher window with what changed, and the user chooses **Update now**, *
 without that click and nothing restarts without a second one (**Restart to update**).
 
 How it works, and what a release must therefore get right:
-- The launcher asks one fixed address, `https://vmapp.dev/updates/mac-arm64/latest.json`, once at start and then about every 24 hours; it
-  sends no identifier, no list of apps, not even its own version (it compares the answer with its own version). The user can turn the check
+- The launcher asks one fixed address, `https://vmapp.dev/updates/mac-arm64/latest.json`, a few seconds after every start and then at least once a day while it
+  runs (it looks every 15 minutes whether a day has passed, so sleep does not skip one); it sends no identifier, no list of apps, not even its own version (it compares the answer with its own version). The user can turn the check
   off in Host Capabilities (`checkForUpdates`) and ask at any time with **Check for Updates…**.
 - The feed is a small JSON file that `node publish.js --release` generates (`website/release.js`, `website/build.js`) from the release: version,
   the zip's address (on the GitHub release) with its SHA-256 and size, the changes for the card, the tag and commit, and the minimum macOS.
@@ -168,6 +168,11 @@ How it works, and what a release must therefore get right:
 - The download and the install are done by Electron's `autoUpdater` (Squirrel.Mac), which accepts only a build **signed with the same Developer ID
   as the running launcher**. A stolen feed address therefore cannot install other software: the install fails.
 - Ad-hoc and development builds never update in place; they show a **Download** button that opens the download page instead.
+- **The launcher must sit in the Applications folder (or any folder its user can write) to update in place.** An app opened straight from Downloads is
+  run by macOS from a temporary read-only copy (app translocation), where Squirrel.Mac refuses with "Cannot update while running on a read-only
+  volume". The launcher detects that (and a read-only disk) at start, says so on the card in place of **Update now**, and offers **Move to
+  Applications** (`app.moveToApplicationsFolder`, after asking about running apps). The download page and the GitHub release notes tell the user to drag the
+  app into Applications. Not yet exercised on a real translocated copy: see PM.md.
 - Runtime updates arrive with launcher updates (the runtimes are bundled).
 - **An update is the whole zip (about 520 MB); there is no delta.** Squirrel.Mac replaces the app, and the 14 sample apps and the runtimes live inside it. So a
   fix to a bundled sample app (or a runtime) is a new launcher release, like any other change. The lighter route is the registry: an app installed from it

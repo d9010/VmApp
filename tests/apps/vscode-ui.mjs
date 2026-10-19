@@ -273,7 +273,7 @@ async function main() {
   // the Mac menu bar cannot be reached over CDP: the loader's test hook writes it to menuDir/menu.json and clicks menuDir/click.txt
   const menuDir = path.join(ROOT, `menu-${stamp}`);
   const menuBar = () => JSON.parse(fs.readFileSync(path.join(menuDir, 'menu.json'), 'utf8'));
-  const L1 = startLoader(home, `loader-${stamp}`, { VMAPP_TEST_DIALOGS: JSON.stringify({ open: [pickDir], save: dlPath, message: 0, external: true }), VMAPP_TEST_DIALOG_LOG: dialogLog, VMAPP_TEST_MENU_DIR: menuDir });
+  const L1 = startLoader(home, `loader-${stamp}`, { VMAPP_TEST_DIALOGS: JSON.stringify({ open: [pickDir], save: dlPath, message: 0, external: true, leave: ['leave', 'leave', 'leave', 'leave', 'leave', 'leave'] }), VMAPP_TEST_DIALOG_LOG: dialogLog, VMAPP_TEST_MENU_DIR: menuDir });
   try {
     const { cdp: lib } = await waitTarget(isLibrary, 'the library window');
     await waitFor(() => lib.eval(`!!document.querySelector('[data-app="${ID}"]')`), { what: 'the app card' });
@@ -414,9 +414,10 @@ async function main() {
     await sleep(1500);
     await page.shot('07-theme');
 
-    // ---- 6a. pictures of an installed extension (activity bar and tab icons): CSS and <img> cannot fetch over the bridge, so the shim
-    // loads them with fetch and swaps in data: URLs (installMediaLoader). A picture of a built-in extension asked for the way the
-    // workbench asks for an installed one (a vscode-remote-resource URL) stands in for it, and is a PNG of known size.
+    // ---- 6a. pictures of an installed extension (activity bar and tab icons): the launcher answers /vscode-remote-resource from the
+    // server in the VM, like any file the app's server serves, so <img>, a CSS mask, a background set through the CSSOM and an inline
+    // style load it by URL (older launchers: vmapp-fetch.js swaps in data: URLs; both are accepted). A picture of a built-in extension
+    // asked for the way the workbench asks for an installed one (a vscode-remote-resource URL) stands in for it, and is a PNG of known size.
     const media = await page.eval(`(async () => {
       const cfg = JSON.parse(document.getElementById('vscode-workbench-web-configuration').dataset.settings);
       const url = location.origin + '/vscode-remote-resource?path=' + encodeURIComponent('/app/vscode/extensions/git/resources/icons/git.png') + '&tkn=' + encodeURIComponent(cfg.connectionToken);
@@ -426,21 +427,30 @@ async function main() {
       const img = document.createElement('img');
       img.src = url;
       document.body.appendChild(img);
+      // the way the editor title's "Claude Code: Open" button gets its icon: an inline style set through the CSSOM
+      const probe = document.createElement('div');
+      probe.style.cssText = 'width:16px;height:16px';
+      probe.style.backgroundImage = 'url("' + url + '")';
+      document.body.appendChild(probe);
+      const loads = (u) => new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i.naturalWidth); i.onerror = () => resolve(0); i.src = u; });
       const t = Date.now();
       while (Date.now() - t < 20000) {
-        const rule = style.sheet.cssRules[0] && style.sheet.cssRules[0].cssText;
-        if (rule && !rule.includes('vscode-remote-resource') && rule.includes('data:image/png;base64,') && img.src.startsWith('data:image/png;base64,') && img.complete && img.naturalWidth > 0) {
-          const out = { rule: rule.length, img: img.naturalWidth };
-          style.remove(); img.remove();
+        if (img.complete && img.naturalWidth > 0) {
+          // what the CSS and the inline style ask for must load too: take the URL out of them and load it the way the page does
+          const rule = style.sheet.cssRules[0] && style.sheet.cssRules[0].cssText;
+          const fromRule = /url\\("?([^")]+)"?\\)/.exec(rule || '');
+          const fromStyle = /url\\("?([^")]+)"?\\)/.exec(probe.style.backgroundImage || '');
+          const out = { rule: fromRule ? await loads(fromRule[1]) : 0, inline: fromStyle ? await loads(fromStyle[1]) : 0, img: img.naturalWidth, native: !img.src.startsWith('data:') };
+          style.remove(); img.remove(); probe.remove();
           return out;
         }
         await new Promise((r) => setTimeout(r, 100));
       }
       return { rule: (style.sheet.cssRules[0] || {}).cssText, img: img.src.slice(0, 120), complete: img.complete, w: img.naturalWidth };
     })()`);
-    assert.ok(media && media.img > 0 && typeof media.rule === 'number', `pictures of an installed extension become data: URLs in CSS and <img>: ${JSON.stringify(media)}`);
+    assert.ok(media && media.img > 0 && media.rule > 0 && media.inline > 0, `pictures of an installed extension load in <img>, CSS and an inline style: ${JSON.stringify(media)}`);
     results.mediaLoader = media;
-    ok(`pictures served from the VM (an installed extension's activity bar and tab icons) load: the CSS mask and the <img> carry data: URLs (${media.img}px wide)`);
+    ok(`pictures served from the VM (an installed extension's activity bar and tab icons) load in <img>, a CSS mask and an inline style (${media.img}px wide, ${media.native ? 'natively' : 'as data: URLs'})`);
 
     // ---- 7. a link ----
     await command(page, 'Help: View License', /View License/i);
@@ -668,18 +678,40 @@ async function main() {
         return true;
       };
       const saves0 = dialogs().filter((d) => d.kind === 'save').length;
-      assert.ok(await downloadVia('picked.txt'), 'the Explorer offers Download... for a file');
-      await waitFor(() => dialogs().filter((d) => d.kind === 'save').length > saves0, { timeout: 20000, what: 'the platform save dialog' });
+      // The context menu is drawn by the page and moves while it opens; a click that lands on it too early hits nothing (no call reaches the core). A person
+      // clicks again; so does the test, up to three times, and records how many it took.
+      const askDownload = async (name, saves, what) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          assert.ok(await downloadVia(name), `the Explorer offers Download... for ${name}`);
+          const asked = await waitFor(() => dialogs().filter((d) => d.kind === 'save').length > saves, { timeout: 8000, what }).then(() => true, () => false);
+          if (asked) return attempt;
+          await escape(page);
+          await sleep(500);
+        }
+        throw new Error(`${what}: not shown after 3 clicks on Download... of ${name}`);
+      };
+      const attempts = [await askDownload('picked.txt', saves0, 'the platform save dialog')];
       const want = fs.readFileSync(path.join(pickDir, 'picked.txt'));
       await waitFor(() => fs.existsSync(dlPath) && Buffer.compare(fs.readFileSync(dlPath), want) === 0, { timeout: 30000, what: `the download at ${dlPath} on the Mac` });
       ok(`Download... on picked.txt: the platform's save dialog, then the file is on the Mac with the same ${want.length} bytes (${dlPath})`);
-      results.download = { file: want.length };
+      results.download = { file: want.length, attempts };
       // a folder: offered when the workbench sees the File System Access API (HasWebFileSystemAccess); the core writes a .tar
       fs.mkdirSync(path.join(pickDir, 'sub'), { recursive: true });
       fs.writeFileSync(path.join(pickDir, 'sub', 'inner.txt'), 'inside a downloaded folder\n');
       await waitFor(async () => (await explorerRows(page)).includes('sub'), { timeout: 30000, what: 'the new folder in the explorer' });
-      if (await downloadVia('sub')) {
-        await waitFor(() => dialogs().filter((d) => d.kind === 'save').length > saves0 + 1, { timeout: 20000, what: 'the second save dialog' });
+      let folderAsked = null; // null: Download... is not offered on a folder
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (!(await downloadVia('sub'))) break;
+        folderAsked = await waitFor(() => dialogs().filter((d) => d.kind === 'save').length > saves0 + 1, { timeout: 8000, what: 'the second save dialog' }).then(() => true, () => false);
+        if (folderAsked) {
+          attempts.push(attempt);
+          break;
+        }
+        await escape(page);
+        await sleep(500);
+      }
+      if (folderAsked !== null) {
+        assert.ok(folderAsked, 'the second save dialog (not shown after 3 clicks on Download... of the folder)');
         const tarOk = () => {
           try {
             const b = fs.readFileSync(dlPath);
@@ -761,8 +793,9 @@ async function main() {
       kinds.set(key, (kinds.get(key) || 0) + 1);
     }
     // the app's channels, the platform requests it makes, window events, and the platform's own record of the folder picked in the dialog
-    // (+ the Ports view: VS Code asks its core to forward a port it detected, and the platform's port rows)
-    const EXPECTED = /^((invoke|result|send|emit|request|reply|window|ready|init|log|before-quit) ?(vscode:(config|open-external|pick-folder|diag|set-gallery|forward-port|close-port|new-window|download)|ws:(open|data|ack|close|ev)|fetch:(open|part|ack|abort|ev)|window\.create|window\.close|dialog\.open|dialog\.save|shell\.openExternal|port\.(forward|close|list)|app\.quit|closed|focus|blur|resize|)|(grant|revoke) (pick|save)-\d+|host clipboard clipboard\.(read|write)|port (forwarding|connection|stopped) VM port \d+ ⇄ localhost:\d+)$/;
+    // (+ the Ports view: VS Code asks its core to forward a port it detected, and the platform's port rows; and `log warn`: the core writes
+    // "Error occurred in handler for '<channel>'" when a handler throws, as Electron prints it, e.g. a port forward the user did not allow)
+    const EXPECTED = /^((invoke|result|send|emit|request|reply|window|ready|init|log|before-quit) ?(vscode:(config|open-external|pick-folder|diag|set-gallery|forward-port|close-port|new-window|download)|ws:(open|data|ack|close|ev)|fetch:(open|part|ack|abort|ev)|window\.create|window\.close|dialog\.open|dialog\.save|shell\.openExternal|port\.(forward|close|list)|app\.quit|closed|focus|blur|resize|)|log warn|(grant|revoke) (pick|save)-\d+|host clipboard clipboard\.(read|write)|port (forwarding|connection|stopped) VM port \d+ ⇄ localhost:\d+)$/;
     const unexpected = [...kinds.keys()].filter((k) => !EXPECTED.test(k));
     step(`Inspector: ${seen.length} rows: ${[...kinds.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ×${n}`).join(', ')}`);
     const netRows = seen.filter((r) => r.net);

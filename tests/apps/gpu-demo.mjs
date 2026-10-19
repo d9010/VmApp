@@ -226,7 +226,8 @@ export default async function ({ session, wm, store }) {
 
     // ---- the CPU benchmark runs in the VM, and the stream keeps going ---------------------------------------
     const beforeBench = snaps().length;
-    const [r1, r2] = await Promise.allSettled([wm.invoke(win, 'bench:nbody', { bodies: 512, steps: 6 }), wm.invoke(win, 'bench:nbody', { bodies: 128, steps: 2 })]);
+    // (long enough to span several 33 ms ticks of the 30 Hz stream: 2048 bodies x 10 steps is about 42 M interactions, some 70 ms)
+    const [r1, r2] = await Promise.allSettled([wm.invoke(win, 'bench:nbody', { bodies: 2048, steps: 10 }), wm.invoke(win, 'bench:nbody', { bodies: 128, steps: 2 })]);
     const fulfilled = [r1, r2].filter((r) => r.status === 'fulfilled');
     const rejected = [r1, r2].filter((r) => r.status === 'rejected');
     assert.equal(fulfilled.length, 1, 'one benchmark runs at a time');

@@ -867,8 +867,37 @@ class AppSession extends EventEmitter {
 
   // ----------------------------------------------------------------------------------------- core -> host
 
+  /**
+   * The launcher asks the core for something itself (not for a window): it calls the core's handlers with `invoke(win, ...)` through any open
+   * window of the app, and the core answers with emits to that window. `tapEmit(channel, fn)` lets the launcher read the emits that are its own
+   * before they reach the window: `fn(args, win)` returns true for an emit it consumed (the window never sees it), false for any other (it goes
+   * on to the window as always). Returns a function that removes the tap. (Used by loader/src/app-serve.js, SPEC 7 "Files the app's server serves".)
+   */
+  tapEmit(channel, fn) {
+    if (!this._emitTaps) this._emitTaps = new Map();
+    if (!this._emitTaps.has(channel)) this._emitTaps.set(channel, new Set());
+    this._emitTaps.get(channel).add(fn);
+    return () => {
+      const set = this._emitTaps.get(channel);
+      if (set) set.delete(fn);
+    };
+  }
+
   _onCoreEmit(msg) {
     try {
+      const taps = this._emitTaps && this._emitTaps.get(msg.channel);
+      if (taps && taps.size) {
+        const args = Array.isArray(msg.args) ? msg.args : [];
+        let consumed = false;
+        for (const fn of [...taps]) {
+          try {
+            if (fn(args, msg.win) === true) consumed = true;
+          } catch (e) {
+            this.log('warn', 'host', `emit tap for ${msg.channel}: ${e.message}`);
+          }
+        }
+        if (consumed) return;
+      }
       const r = this.wm.emit(msg.win, msg.channel, Array.isArray(msg.args) ? msg.args : []);
       if (r && typeof r.catch === 'function') r.catch((e) => this.log('warn', 'host', `emit to window ${msg.win}: ${e.message}`));
     } catch (e) {

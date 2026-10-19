@@ -40,7 +40,8 @@ if (app.isPackaged) {
 
 // ---- must happen before app ready ----
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'vmapp-ui', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  // `stream`: <video> and <audio> expect a streamed answer (Electron: protocol.registerSchemesAsPrivileged), which is what a file of the app's own server is
+  { scheme: 'vmapp-ui', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   // isolated frames (SPEC 7, ui.features "frames"): the only scheme where service workers may run (web content in a frame needs them)
   { scheme: 'vmapp-frame', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, allowServiceWorkers: true } },
   { scheme: 'vmapp-loader', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -88,6 +89,7 @@ let hostUi = null;
 let gpuBroker = null; // the sandboxed GPU servers, one per running app that was allowed one (SPEC 8.6)
 let prefs = null; // the loader's preferences (src/prefs.js)
 let updater = null; // the launcher's own updates (src/updater.js, SPEC 8.10)
+let appServeFor = null; // app id -> the AppServe that answers its page's requests under the paths its server serves (src/app-serve.js, SPEC 7)
 let hostCtl = null; // the vmapp-hostctl client (status, request-permissions, the panic shortcut)
 let devicesGate = null; // the DeviceGate: the microphone answer of app windows (SPEC 7, src/devices.js)
 let monitor = null; // the live monitor: menu-bar icon + popover (src/monitor.js)
@@ -235,6 +237,22 @@ ipcMain.on('vmapp:hello', (event) => {
   event.returnValue = rec ? { id: rec.app.id, name: rec.app.name, version: rec.app.version } : null;
 });
 
+// The page says which paths its server serves (sdk/web/vmapp-fetch.js, first thing it does): `vmapp.serve([{prefix, channel}])`. The answer is
+// true when the launcher answers those paths itself (SPEC 7 "Files the app's server serves"), false when it does not (the page-side layer then does).
+ipcMain.on('vmapp:serve', (event, routes) => {
+  const rec = appRecord(event);
+  if (!rec || !appServeFor) {
+    event.returnValue = false;
+    return;
+  }
+  try {
+    event.returnValue = appServeFor(rec.appId).announce(routes);
+  } catch (e) {
+    log('warn', `[${rec.appId}] ${e.message}`);
+    event.returnValue = false;
+  }
+});
+
 ipcMain.handle('vmapp:invoke', async (event, channel, args) => {
   const rec = appRecord(event);
   if (!rec) return { ok: false, error: 'denied' };
@@ -244,7 +262,9 @@ ipcMain.handle('vmapp:invoke', async (event, channel, args) => {
   try {
     return { ok: true, result: await appSession.invoke(rec.win, channel, args) };
   } catch (e) {
-    return { ok: false, error: e && e.message ? String(e.message) : 'error' };
+    // `text` is what Electron's ipcMain sends for a handler that threw (error.toString()); the page builds "Error invoking remote method …" from it
+    const error = e && e.message ? String(e.message) : 'error';
+    return { ok: false, error, text: e && typeof e.remoteText === 'string' ? e.remoteText : `Error: ${error}` };
   }
 });
 
@@ -583,7 +603,32 @@ if (!app.requestSingleInstanceLock()) {
 
     const uiContexts = new Map();
     uiContextsRef = uiContexts;
-    const handleAppUi = createAppUiHandler(uiContexts, (m) => log('warn', m));
+    // Files the app's own server serves, answered natively (Electron's protocol.handle contract; src/app-serve.js). The page announces its paths;
+    // a path of the package always wins. VMAPP_TEST_NO_NATIVE_SERVE=1 (development builds only) switches it off, to test the page-side layer.
+    const { AppServe } = require('./src/app-serve');
+    const { appCsp } = require('./src/protocols');
+    const noNativeServe = !cfg.isPackaged && process.env.VMAPP_TEST_NO_NATIVE_SERVE === '1';
+    const appServes = new Map();
+    appServeFor = (appId) => {
+      let s = appServes.get(appId);
+      if (!s) {
+        const ctx = uiContexts.get(appId);
+        s = new AppServe({
+          appId,
+          getSession: () => (runner ? runner.sessionOf(appId) : null),
+          csp: ctx ? appCsp(ctx.app.manifest.ui.features) : '',
+          enabled: !noNativeServe,
+          log: (m) => log('warn', m),
+        });
+        appServes.set(appId, s);
+      }
+      return s;
+    };
+    const serveBridge = {
+      covers: (appId, pathname) => appServeFor(appId).covers(pathname),
+      handle: (appId, request) => appServeFor(appId).handle(request),
+    };
+    const handleAppUi = createAppUiHandler(uiContexts, (m) => log('warn', m), serveBridge);
     const getIconPath = (id) => {
       try {
         const a = store.get(id);
@@ -682,6 +727,34 @@ if (!app.requestSingleInstanceLock()) {
     const { LauncherUpdater } = require('./src/updater');
     const testFeed = !cfg.isPackaged && process.env.VMAPP_TEST_UPDATE_FEED ? process.env.VMAPP_TEST_UPDATE_FEED : ''; // dev builds only
     const testDelay = !cfg.isPackaged && process.env.VMAPP_TEST_UPDATE_DELAY_MS ? Number(process.env.VMAPP_TEST_UPDATE_DELAY_MS) : undefined;
+    // Where this copy sits decides whether it can replace itself: macOS runs an app opened from Downloads from a temporary read-only copy
+    // ("app translocation"), and Squirrel.Mac then refuses ("Cannot update while running on a read-only volume"). Said before "Update now".
+    const bundlePath = path.resolve(process.execPath, '..', '..', '..');
+    const locationBlock = () => {
+      if (!cfg.isPackaged || process.platform !== 'darwin') return '';
+      if (bundlePath.includes('/AppTranslocation/')) return 'translocated';
+      try {
+        fs.accessSync(path.dirname(bundlePath), fs.constants.W_OK);
+      } catch {
+        return 'readonly';
+      }
+      return '';
+    };
+    // dev builds only: pretend to sit somewhere that cannot update, and record the move instead of doing it (the CDP run Y)
+    const testBlock = !cfg.isPackaged && ['translocated', 'readonly'].includes(process.env.VMAPP_TEST_INSTALL_BLOCK) ? process.env.VMAPP_TEST_INSTALL_BLOCK : '';
+    const testMoveLog = !cfg.isPackaged && process.env.VMAPP_TEST_MOVE_LOG ? path.resolve(process.env.VMAPP_TEST_MOVE_LOG) : '';
+    const moveToApplications =
+      cfg.isPackaged && process.platform === 'darwin' && typeof app.moveToApplicationsFolder === 'function'
+        ? async () => {
+            // an older copy in Applications is replaced (the user pressed Move); one that is running is not touched
+            const moved = app.moveToApplicationsFolder({ conflictHandler: (type) => type === 'exists' });
+            if (!moved) throw new Error('A copy of the launcher is already open in the Applications folder; quit it and try again.');
+          }
+        : testBlock && testMoveLog
+          ? async () => {
+              fs.appendFileSync(testMoveLog, 'move\n');
+            }
+          : null;
     updater = new LauncherUpdater({
       home: store.home,
       version: app.getVersion(),
@@ -692,15 +765,24 @@ if (!app.requestSingleInstanceLock()) {
       dev: !cfg.isPackaged,
       osVersion: typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : '',
       startupDelayMs: Number.isFinite(testDelay) ? testDelay : undefined,
+      installBlock: testBlock || locationBlock(),
+      moveToApplications,
       log,
     });
     updater.on('state', (s) => library.push('upd:state', s));
-    const confirmRestart = async (parent) => {
+    const confirmRestart = async (parent, moving = false) => {
       const running = runner.activeIds();
       if (running.length) {
         const r = await nativeDialogs.message(
           parent,
-          { type: 'question', buttons: ['Restart and update', 'Cancel'], defaultId: 0, cancelId: 1, message: 'Restart the launcher to finish updating?', detail: `${running.length === 1 ? '1 app is' : `${running.length} apps are`} running and will be stopped.` },
+          {
+            type: 'question',
+            buttons: [moving ? 'Move and restart' : 'Restart and update', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            message: moving ? 'Move the launcher to the Applications folder and restart it?' : 'Restart the launcher to finish updating?',
+            detail: `${running.length === 1 ? '1 app is' : `${running.length} apps are`} running and will be stopped.`,
+          },
           'launcher-restart',
         );
         if (r !== 0) return false;
@@ -722,6 +804,7 @@ if (!app.requestSingleInstanceLock()) {
     updateHandle('upd:check', () => updater.check({ manual: true }));
     updateHandle('upd:install', () => updater.install());
     updateHandle('upd:restart', (parent) => updater.restart(() => confirmRestart(parent)));
+    updateHandle('upd:move', (parent) => updater.moveToApplications(() => confirmRestart(parent, true)));
     updateHandle('upd:skip', () => updater.skip());
     updateHandle('upd:later', () => updater.later());
     updateHandle('upd:dismiss', () => updater.dismiss());

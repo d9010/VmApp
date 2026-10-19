@@ -287,7 +287,13 @@ function ruleB1(tree) {
 // ------------------------------------------------------------------------------------------------ B2
 
 // `menu` (set, onClick): the window's menus in the Mac menu bar, data only (SPEC 7 "Menus"; DEV-APPS C9, proposed 2026-10-17)
-const EXPECT_TOP = ['invoke', 'send', 'on', 'menu', 'app', 'ipcRenderer'];
+// `serve`, `served`: "these paths are my server's", data only, and whether the launcher answers them itself (SPEC 7 "Files the app's server serves";
+// docs/design/ELECTRON-PARITY.md stage 1). Neither takes or returns anything but paths and a boolean; the launcher validates and scopes them.
+const EXPECT_TOP = ['invoke', 'send', 'on', 'serve', 'served', 'menu', 'app', 'ipcRenderer'];
+// `ipcRenderer`: Electron's ipcRenderer as far as a context bridge allows (SPEC 7 "ipcRenderer"; docs/design/ELECTRON-PARITY.md stage 1). Every one
+// is a function over the same three channels as invoke/send/on (listener bookkeeping, or an error that says why the method cannot exist); none
+// reaches the raw ipcRenderer.
+const IPC_RENDERER_KEYS = ['invoke', 'send', 'on', 'once', 'addListener', 'off', 'removeListener', 'removeAllListeners', 'eventNames', 'listenerCount', 'sendSync'];
 
 function ruleB2(tree) {
   const out = [];
@@ -334,10 +340,10 @@ function ruleB2(tree) {
         if (x.value && /^ipcRenderer\b/.test(x.value.trim())) out.push(at('fail', file, sc, x.index, `window.vmapp.${key}.${x.key} exposes the raw ipcRenderer`));
       }
     };
-    sub('ipcRenderer', ['invoke', 'send', 'on']);
+    sub('ipcRenderer', IPC_RENDERER_KEYS);
     sub('app', ['id', 'name', 'version']);
     sub('menu', ['set', 'onClick']);
-    for (const k of ['invoke', 'send', 'on']) {
+    for (const k of ['invoke', 'send', 'on', 'serve', 'served']) {
       const p = top.props.find((x) => x.key === k);
       if (p && p.value && /^ipcRenderer\b/.test(p.value.trim())) out.push(at('fail', file, sc, p.index, `window.vmapp.${k} exposes the raw ipcRenderer`));
     }

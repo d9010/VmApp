@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { LauncherUpdater, compareDotted, STARTUP_DELAY_MS, RECHECK_MS, MIN_GAP_MS, DOWNLOAD_PAGE, CHANGELOG_PAGE } = require('../../loader/src/updater');
+const { LauncherUpdater, compareDotted, STARTUP_DELAY_MS, RECHECK_MS, TICK_MS, BLOCK_TEXT, DOWNLOAD_PAGE, CHANGELOG_PAGE } = require('../../loader/src/updater');
 
 const SHA = 'b'.repeat(64);
 const FEED = (over = {}) => Object.assign({
@@ -73,7 +73,7 @@ function make(t, over = {}) {
     home: tmpHome(t), version: '0.1.0', packaged: true, prefs, autoUpdater: au, dev: true, osVersion: '14.5.0', log: (l, m) => logs.push(`${l} ${m}`),
   }, over));
   // these tests need darwin semantics for "can install in place"
-  if (over.autoUpdater !== null && au && u.packaged) u.canInstall = true;
+  if (over.autoUpdater !== null && au && u.packaged && !over.installBlock) u.canInstall = true;
   const phases = [];
   u.on('state', (s) => phases.push(s.phase));
   return { u, prefs, au, phases, logs };
@@ -134,7 +134,7 @@ test('the switch: with it off, automatic checks do not ask; a manual one still d
   assert.equal(s.hits, 1);
 });
 
-test('start-up: asks once after the delay, not at all when the switch is off, and not if it asked a short while ago', async (t) => {
+test('start-up: asks once after the delay, and not at all when the switch is off', async (t) => {
   const s = await feedServer(t, FEED());
   const on = make(t, { feedUrl: s.url, startupDelayMs: 30 });
   on.u.start();
@@ -151,19 +151,47 @@ test('start-up: asks once after the delay, not at all when the switch is off, an
   assert.equal(s.hits, 0);
   off.u.stop();
 
-  // a second launcher run soon after the first (the same data folder) does not ask again
+  assert.ok(STARTUP_DELAY_MS <= 10000 && RECHECK_MS === 24 * 3600 * 1000 && TICK_MS <= 3600 * 1000, 'a few seconds after start-up; a day; looked at least hourly');
+});
+
+test('every launch asks, even when the last answer was a minute ago (the same data folder)', async (t) => {
+  const s = await feedServer(t, FEED());
   const home = tmpHome(t);
-  const first = make(t, { feedUrl: s.url, home, startupDelayMs: 10 });
-  first.u.start();
-  await new Promise((r) => setTimeout(r, 200));
-  first.u.stop();
-  const hitsAfterFirst = s.hits;
-  const second = make(t, { feedUrl: s.url, home, startupDelayMs: 10 });
-  second.u.start();
-  await new Promise((r) => setTimeout(r, 200));
-  second.u.stop();
-  assert.equal(s.hits, hitsAfterFirst, `no new request within ${MIN_GAP_MS / 3600000} hours`);
-  assert.ok(RECHECK_MS > MIN_GAP_MS && STARTUP_DELAY_MS >= 10000);
+  for (let i = 1; i <= 3; i++) {
+    const run = make(t, { feedUrl: s.url, home, startupDelayMs: 10 });
+    run.u.start();
+    await new Promise((r) => setTimeout(r, 200));
+    run.u.stop();
+    assert.equal(s.hits, i, `launch ${i} asked`);
+  }
+});
+
+test('while it runs it asks again once a day, also after the Mac slept, and a check that could not reach the server is tried again soon', async (t) => {
+  const s = await feedServer(t, FEED());
+  let clock = 1_000_000_000_000;
+  const { u } = make(t, { feedUrl: s.url, startupDelayMs: 10, tickMs: 20, now: () => clock });
+  u.start();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(s.hits, 1, 'the launch check, and not again on the ticks while less than a day has passed');
+  clock += 23 * 3600 * 1000;
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(s.hits, 1, '23 hours later: not yet');
+  clock += 2 * 3600 * 1000; // the Mac slept and woke up 25 hours after the last answer
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(s.hits, 2, 'a day has passed: asked once more');
+  u.stop();
+
+  // the server cannot be reached at the launch check: the next tick tries again instead of waiting a day
+  s.set('server trouble', 500);
+  const { u: v } = make(t, { feedUrl: s.url, startupDelayMs: 10, tickMs: 20, now: () => clock });
+  const before = s.hits;
+  v.start();
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(s.hits - before >= 2, `failed answers do not count as "checked today" (${s.hits - before} tries)`);
+  s.set(FEED());
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(v.state().phase, 'available', 'and the first answer that works is shown');
+  v.stop();
 });
 
 test('"Skip this version": not offered again automatically, still shown to a manual check, a newer one is offered', async (t) => {
@@ -280,6 +308,54 @@ test('a copy that is not signed for in-place updates is told to download instead
   assert.equal(st.canInstall, false);
   assert.match(st.error, /not signed in a way that lets it update itself/);
   assert.equal(u.pageFor('download'), 'https://vmapp.dev/download');
+});
+
+test('a copy that macOS runs from a temporary read-only place says so before "Update now", and offers to move itself', async (t) => {
+  const s = await feedServer(t, FEED());
+  const moved = [];
+  const { u, au, phases } = make(t, { feedUrl: s.url, installBlock: 'translocated', moveToApplications: async () => void moved.push('move') });
+  const st = await u.check({ manual: false });
+  assert.equal(st.phase, 'available', 'the update is still announced');
+  assert.deepEqual([st.canInstall, st.installBlock, st.canMove], [false, 'translocated', true]);
+  assert.throws(() => u.install(), /Move it to the Applications folder first/);
+  assert.equal(au.calls.length, 0, 'the updater is never asked to download from where it cannot replace itself');
+  // the user is asked about running apps first, and can cancel
+  assert.equal((await u.moveToApplications(async () => false)).phase, 'available');
+  assert.deepEqual(moved, []);
+  await u.moveToApplications(async () => true);
+  assert.deepEqual(moved, ['move']);
+  assert.ok(phases.includes('available'));
+});
+
+test('a failed move is explained in words, and the update stays known', async (t) => {
+  const s = await feedServer(t, FEED());
+  const { u } = make(t, { feedUrl: s.url, installBlock: 'readonly', moveToApplications: async () => { throw new Error('A copy of the launcher is already open in the Applications folder.'); } });
+  await u.check({ manual: true });
+  const st = await u.moveToApplications(null);
+  assert.equal(st.phase, 'error');
+  assert.match(st.error, /could not move itself: A copy of the launcher is already open.*Drag it into the Applications folder/);
+  assert.ok(st.update, 'the card can still say what is available');
+  assert.equal(st.canMove, true, 'and the user can try again');
+});
+
+test('without a way to move (not packaged), a blocked copy is told to drag it in Finder', async (t) => {
+  const { u } = make(t, { installBlock: 'translocated', moveToApplications: null });
+  assert.equal(u.state().canMove, false);
+  await assert.rejects(u.moveToApplications(null), /Drag it into the Applications folder in Finder/);
+  await assert.rejects(make(t, {}).u.moveToApplications(null), /cannot be moved from here/);
+});
+
+test('Squirrel saying "read-only volume" (the app was opened from Downloads) becomes the same advice, not a raw error', async (t) => {
+  const s = await feedServer(t, FEED());
+  const { u, au } = make(t, { feedUrl: s.url, moveToApplications: async () => {} });
+  await u.check({ manual: true });
+  u.install();
+  au.emit('error', new Error('Cannot update while running on a read-only volume. The application is on a read-only volume. Please move the application and try again.'));
+  const st = u.state();
+  assert.equal(st.phase, 'error');
+  assert.equal(st.error, BLOCK_TEXT.translocated);
+  assert.deepEqual([st.canInstall, st.installBlock, st.canMove], [false, 'translocated', true]);
+  assert.ok(st.update);
 });
 
 test('a development or unpackaged launcher still shows the update but cannot install it', async (t) => {

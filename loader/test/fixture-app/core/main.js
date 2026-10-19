@@ -70,6 +70,23 @@ ipcMain.handle('external', (e, url) => shell.openExternal(url));
 ipcMain.on('tick-me', (e, n) => {
   win.webContents.send('tick', { n, from: 'core' });
 });
+
+// Electron's ipcMain / ipcRenderer contract, in a real window (tests/electron-conformance/MAPPING.md)
+ipcMain.on('reply-me', (e, x) => e.reply('replied', x)); // "can be replied to"
+ipcMain.handle('throw-type', () => {
+  throw new TypeError('bad type from the core');
+});
+ipcMain.handle('typed', () => [new Uint8Array([1, 2, 3]), new Date(86400000), new Map([['k', new Set([1, 2])]]), undefined, 12345678901234567890n, NaN, -0, new Error('inner')]);
+ipcMain.handle('typed-cycle', () => {
+  const child = { hello: 'world' };
+  child.child = child;
+  const array = [5];
+  array.push(array);
+  return [array, child];
+});
+ipcMain.handle('send-typed', (e, ...args) => {
+  win.webContents.send('typed', ...args);
+});
 ipcMain.handle('quit', () => {
   setTimeout(() => app.quit(), 20);
 });

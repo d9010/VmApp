@@ -7,6 +7,11 @@
   const api = window.loader && window.loader.update;
   if (!root || !api) return;
 
+  // why this copy cannot replace itself where it is (the same sentences as loader/src/updater.js BLOCK_TEXT; the page decides nothing)
+  const BLOCK_TEXT = {
+    translocated: 'macOS is running this copy from a temporary, read-only place (it does that for apps opened straight from Downloads), so it cannot replace itself. Move it to your Applications folder and it can update.',
+    readonly: 'This copy is on a read-only disk, or in a folder you cannot change, so it cannot replace itself. Move it to your Applications folder and it can update.',
+  };
   let hiddenReady = false; // "Later" on the restart card hides it until the next state message (the update stays downloaded)
   let upToDateTimer = null;
 
@@ -57,13 +62,16 @@
           `Launcher ${u.version} is available`,
           h('p', { class: 'muted' }, meta),
           whatsNew(u),
-          st.canInstall ? null : h('p', { class: 'muted' }, 'This copy of the launcher cannot update itself, so you download the new version and replace this one.'),
+          st.canInstall ? null : st.installBlock ? h('p', { class: 'muted', dataset: { role: 'update-block' } }, BLOCK_TEXT[st.installBlock] || BLOCK_TEXT.readonly) : h('p', { class: 'muted' }, 'This copy of the launcher cannot update itself, so you download the new version and replace this one.'),
           h(
             'div',
             { class: 'update-actions' },
             st.canInstall
               ? h('button', { class: 'primary', dataset: { action: 'update-install' }, onclick: run(() => api.install()) }, 'Update now')
-              : h('button', { class: 'primary', dataset: { action: 'update-download' }, onclick: run(() => api.open('download')) }, 'Download'),
+              : st.canMove
+                ? h('button', { class: 'primary', dataset: { action: 'update-move' }, onclick: run(() => api.move()) }, 'Move to Applications')
+                : h('button', { class: 'primary', dataset: { action: 'update-download' }, onclick: run(() => api.open('download')) }, 'Download'),
+            !st.canInstall && st.canMove ? h('button', { dataset: { action: 'update-download' }, onclick: run(() => api.open('download')) }, 'Download') : null,
             h('button', { dataset: { action: 'update-later' }, onclick: run(() => api.later()) }, 'Later'),
             h('button', { dataset: { action: 'update-skip' }, title: 'Do not offer this version again', onclick: run(() => api.skip()) }, 'Skip this version'),
           ),
@@ -122,7 +130,8 @@
             'div',
             { class: 'update-actions' },
             retry ? h('button', { class: 'primary', dataset: { action: 'update-install' }, onclick: run(() => api.install()) }, 'Try again') : null,
-            u && !st.canInstall ? h('button', { class: 'primary', dataset: { action: 'update-download' }, onclick: run(() => api.open('download')) }, 'Download') : null,
+            st.canMove ? h('button', { class: 'primary', dataset: { action: 'update-move' }, onclick: run(() => api.move()) }, 'Move to Applications') : null,
+            u && !st.canInstall ? h('button', { class: st.canMove ? '' : 'primary', dataset: { action: 'update-download' }, onclick: run(() => api.open('download')) }, 'Download') : null,
             h('button', { dataset: { action: 'update-dismiss' }, onclick: run(() => api.dismiss()) }, 'Dismiss'),
           ),
         ),

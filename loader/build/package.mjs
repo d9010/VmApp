@@ -77,6 +77,12 @@ removeBelowDist(STAGE);
 fs.mkdirSync(path.join(STAGE, 'loader'), { recursive: true });
 for (const f of ['main.js', 'preload-app.js', 'preload-loader.js']) fs.copyFileSync(path.join(LOADER, f), path.join(STAGE, 'loader', f));
 for (const d of ['src', 'ui']) fs.cpSync(path.join(LOADER, d), path.join(STAGE, 'loader', d), { recursive: true });
+// the page half of the HTTP bridge: the launcher uses it too, to answer the app's page natively (loader/src/app-serve.js)
+fs.mkdirSync(path.join(STAGE, 'sdk', 'web'), { recursive: true });
+fs.copyFileSync(path.join(VMAPP, 'sdk', 'web', 'vmapp-fetch.js'), path.join(STAGE, 'sdk', 'web', 'vmapp-fetch.js'));
+// the structured clone codec of the bridge (hostlib/bridge.js); the same file is in the runtime images, for the guest SDK
+fs.mkdirSync(path.join(STAGE, 'sdk', 'node'), { recursive: true });
+fs.copyFileSync(path.join(VMAPP, 'sdk', 'node', 'ipc-codec.js'), path.join(STAGE, 'sdk', 'node', 'ipc-codec.js'));
 fs.mkdirSync(path.join(STAGE, 'hostlib'));
 for (const f of fs.readdirSync(path.join(VMAPP, 'hostlib'))) {
   if (f.endsWith('.js')) fs.copyFileSync(path.join(VMAPP, 'hostlib', f), path.join(STAGE, 'hostlib', f));

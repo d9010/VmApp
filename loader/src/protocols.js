@@ -134,10 +134,9 @@ function cleanRelPath(pathname) {
  * Only files listed in the manifest's `files` are served, and only when their SHA-256 matches; the verified
  * (size, mtime) is cached per session so a file is hashed once until it changes on disk.
  */
-function createAppUiHandler(contexts, log = () => {}) {
+function createAppUiHandler(contexts, log = () => {}, bridge = null) {
   return async function handleAppUi(request) {
     const notFound = () => respond(404, 'Not found', 'text/plain; charset=utf-8', APP_CSP);
-    if (request.method !== 'GET' && request.method !== 'HEAD') return respond(405, 'Method not allowed', 'text/plain; charset=utf-8', APP_CSP);
     let u;
     try {
       u = new URL(request.url);
@@ -145,9 +144,25 @@ function createAppUiHandler(contexts, log = () => {}) {
       return notFound();
     }
     const ctx = contexts.get(u.hostname);
+    // Files the app's own server serves (SPEC 7, loader/src/app-serve.js): a path under one the app's page announced, and NOT a file of
+    // the package, is answered by the app's core over the bridge, with Electron's contract (a Request in, a streamed Response out). A
+    // package file always wins, even when its hash does not match (it is then refused, never replaced by what the core says).
+    if (ctx && bridge && !isPackageFile(ctx, u) && (await bridge.covers(u.hostname, u.pathname))) {
+      const served = await bridge.handle(u.hostname, request);
+      if (served) return served;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') return respond(405, 'Method not allowed', 'text/plain; charset=utf-8', APP_CSP);
     if (!ctx) return notFound();
     return serveVerified(ctx, u, request, appCsp(ctx.app.manifest.ui.features), log);
   };
+}
+
+/** Is URL `u` a file the manifest lists (whatever its hash says)? */
+function isPackageFile(ctx, u) {
+  const rel = cleanRelPath(u.pathname);
+  if (!rel) return false;
+  const m = ctx.app.manifest;
+  return Object.prototype.hasOwnProperty.call(m.files, `${m.ui.root}/${rel}`);
 }
 
 /**

@@ -68,9 +68,14 @@ Each invariant has an ID, the rule, why it exists, and how to verify it. Cite ID
   `devTools` anywhere in `loader/`, and the `devtools-opened` closer).
 
 **INV-B2 · The renderer's only API is `window.vmapp`.**
-- **Rule:** `preload-app.js` exposes exactly `invoke`, `send`, `on`, `menu` (`set`, `onClick`: the window's menus, data only;
-  *proposed 2026-10-17, DEV-APPS C9, effective on merge*), `app` and the `ipcRenderer` alias (SPEC §7). Adding anything is a
-  spec change.
+- **Rule:** `preload-app.js` exposes exactly `invoke`, `send`, `on`, `serve` and `served` (the page names the paths its own server serves, and
+  asks whether the launcher answers them itself: paths and a boolean, nothing else; the launcher checks and scopes them, SPEC §7 "Files the app's
+  server serves"; *proposed 2026-10-19, docs/design/ELECTRON-PARITY.md stage 1, effective on merge*), `menu` (`set`, `onClick`: the window's menus,
+  data only; *proposed 2026-10-17, DEV-APPS C9, effective on merge*), `app` and the `ipcRenderer` alias (SPEC §7). Adding anything is a
+  spec change. The alias is Electron's `ipcRenderer` as far as a context bridge allows, exactly `invoke`, `send`, `on`, `once`, `addListener`,
+  `off`, `removeListener`, `removeAllListeners`, `eventNames`, `listenerCount` and `sendSync` (*proposed 2026-10-19, ELECTRON-PARITY stage 1,
+  effective on merge*): each is listener bookkeeping over the same three channels as `invoke`/`send`/`on`, or an error that explains why the method
+  cannot exist; none reaches the raw `ipcRenderer`, and the preload still requires nothing but `electron`.
 - **IPC routing:** IPC from a renderer is routed by the sender's `webContents` id, never by a renderer-supplied
   app id or window id.
 
@@ -351,14 +356,15 @@ revoke must never change the static share device or other slots.
 ### U. The launcher's own updates (SPEC §8.10)
 
 **INV-U1 · The launcher updates itself only on the user's click, from a signed build, and asks nothing about the user.**
-- **Asking:** one fixed `https` address on `vmapp.dev`, a little after start-up and then once a day, unless the user turned
-  that off (the `checkForUpdates` preference), and whenever the user chooses *Check for Updates…*. A plain request: no query, no
+- **Asking:** one fixed `https` address on `vmapp.dev`, a few seconds after every start-up and then at least once a day, unless the
+  user turned that off (the `checkForUpdates` preference), and whenever the user chooses *Check for Updates…*. A plain request: no query, no
   identifier, no version, no cookie, no custom user agent; no redirect is followed. The loader decides whether the answer is newer,
   never the server.
 - **Using the answer:** the feed is cut down to a fixed set of fields; the download address must be `https` on `github.com` or
   `vmapp.dev`; page links only on `vmapp.dev`; all text is shown as text. An invalid feed offers nothing.
 - **Nothing without a click:** the update is downloaded only after *Update now*, and the launcher restarts only after
-  *Restart to update* (running apps are never stopped without the user being asked). The automatic path never installs or restarts.
+  *Restart to update* or *Move to Applications* (running apps are never stopped without the user being asked). The automatic path
+  never installs, moves or restarts.
 - **Signed:** installing is Electron's updater's job, which accepts a new app only if it is signed by the same developer identity
   as the running one. A copy that cannot update itself (a development build, an ad hoc signed one) shows the update and offers the
   download page instead.
@@ -386,7 +392,7 @@ that the forbidden thing is still refused.
 - **User-initiated network, defined exactly:** installing from a registry the user named; browsing or searching
   that registry in *Browse registry…*; publishing with *Publish…*; "Check for updates"; launch-time checks for an
   app whose update choice the user set to *Latest compatible* or *Always latest* (SPEC §8.1); and the launcher's own update
-  check (SPEC §8.10, INV-U1), which also runs by itself, once a day, until the user turns it off.
+  check (SPEC §8.10, INV-U1), which also runs by itself, at every start and at least once a day, until the user turns it off.
 - **What those requests may carry:** the app id and version only; for browsing, only the search text, sort and page;
   for publishing, the package and the owner token. The launcher's own update check carries nothing at all. No identifiers,
   no usage data, no list of other installed apps.

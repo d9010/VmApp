@@ -103,11 +103,12 @@ test('invoke: results, undefined, errors carry only the message', async (t) => {
   const a = await boot(t);
   const c = a.client;
   assert.deepEqual(await c.invoke(7, 'echo', [1, 'two', { three: [3] }, null]), [1, 'two', { three: [3] }, null]);
-  assert.equal(await c.invoke(7, 'nothing', []), null);
-  await assert.rejects(c.invoke(7, 'fail', []), (e) => e.message === 'boom' && !/\n\s+at /.test(e.message));
+  assert.equal(await c.invoke(7, 'nothing', []), undefined, 'a handler that returns nothing: undefined, as with Electron (it was null before the structured clone codec)');
+  await assert.rejects(c.invoke(7, 'fail', []), (e) => e.message === 'boom' && !/\n\s+at /.test(e.message) && e.remoteText === 'Error: boom');
   await assert.rejects(c.invoke(7, 'fail-async', []), (e) => e.message === 'async boom');
   await assert.rejects(c.invoke(7, 'nope', []), /No handler registered for 'nope'/);
-  await assert.rejects(c.invoke(7, 'circular', []), /circular|serial/i);
+  const circular = await c.invoke(7, 'circular', []); // structured clone copies cycles (it was an error while the bridge was plain JSON)
+  assert.equal(circular.self, circular);
   assert.deepEqual(await c.invoke(7, 'who', []), { win: 7, same: true });
   assert.deepEqual(await c.invoke(7, 'windows', []), [7]);
   assert.equal(await c.invoke(7, 'from-id', [7]), 'win');
@@ -136,6 +137,133 @@ test('send reaches ipcMain.on; webContents.send arrives as emit; listener errors
   a.client.sendToCore(7, 'throws', []);
   await until(() => a.logs.some((l) => l.level === 'error' && /listener failure/.test(l.message)), 5000, 'error log');
   // still alive afterwards
+  assert.deepEqual(await a.client.invoke(7, 'echo', ['alive']), ['alive']);
+});
+
+// ---- Electron's ipcMain contract (spec/api-ipc-main-spec.ts, api-ipc-spec.ts; docs/api/ipc-main.md, structures/ipc-main-event.md) ----
+
+const lastEmit = (a, channel) => [...a.emits].reverse().find((e) => e.channel === channel);
+
+test('ipcMain.on: event.reply answers the sender ("can be replied to")', async (t) => {
+  const a = await boot(t);
+  a.emits.length = 0;
+  a.client.sendToCore(7, 'test-echo', ['hello']);
+  await until(() => lastEmit(a, 'test-echo'), 5000, 'the reply');
+  assert.deepEqual(lastEmit(a, 'test-echo'), { t: 'emit', win: 7, channel: 'test-echo', args: ['hello'] });
+});
+
+test('IpcMainEvent and IpcMainInvokeEvent have Electron\'s shape', async (t) => {
+  const a = await boot(t);
+  a.client.sendToCore(7, 'event-shape', []);
+  await until(() => lastEmit(a, 'shape'), 5000, 'shape');
+  const s = lastEmit(a, 'shape').args[0];
+  assert.deepEqual(s, {
+    keys: ['frameId', 'ports', 'preventDefault', 'processId', 'reply', 'sender', 'senderWindow', 'type'],
+    type: 'frame',
+    processId: 7,
+    frameId: 1,
+    sender: true,
+    reply: 'function',
+    ports: true,
+  });
+  const inv = await a.client.invoke(7, 'invoke-shape', []);
+  assert.deepEqual(inv, { keys: ['frameId', 'preventDefault', 'processId', 'sender', 'senderWindow', 'type'], type: 'frame', processId: 7, frameId: 1, reply: 'undefined', ports: 'undefined' });
+});
+
+test('ipcMain is an EventEmitter, with "error" guarded (the "is not used for internals" case)', async (t) => {
+  const a = await boot(t);
+  const r = await a.client.invoke(7, 'main-api', []);
+  assert.equal(r.emitter, true);
+  assert.ok(r.names.includes('error'), r.names.join(','));
+  // a channel named "error" reaches its listener and does not throw when nobody listens
+  a.client.sendToCore(7, 'error', ['boom']);
+  await until(() => a.emits.some((e) => e.channel === 'pong' && e.args[0] === 'error-channel:boom'), 5000, 'the "error" channel');
+  assert.deepEqual(await a.client.invoke(7, 'echo', ['alive']), ['alive']);
+});
+
+test('listeners run in the order they were added; once runs once; a throwing listener stops the ones after it (EventEmitter)', async (t) => {
+  const a = await boot(t);
+  a.client.sendToCore(7, 'seq', [1]);
+  a.client.sendToCore(7, 'seq', [2]);
+  await until(async () => (await a.client.invoke(7, 'seq-seen', [])).length === 4, 5000, 'both listeners twice').catch(() => {});
+  assert.deepEqual(await a.client.invoke(7, 'seq-seen', []), ['a1', 'b1', 'a2', 'b2']);
+  a.emits.length = 0;
+  a.client.sendToCore(7, 'one-shot', [1]);
+  a.client.sendToCore(7, 'one-shot', [2]);
+  await a.client.invoke(7, 'echo', ['barrier']);
+  assert.deepEqual(a.emits.filter((e) => e.channel === 'pong').map((e) => e.args[0]), ['once:1']);
+});
+
+test('an async listener that rejects is logged and does not stop the core', async (t) => {
+  const a = await boot(t);
+  a.client.sendToCore(7, 'async-fail', []);
+  await until(() => a.logs.some((l) => /async listener failure/.test(l.message)), 5000, 'the log');
+  assert.deepEqual(await a.client.invoke(7, 'echo', ['alive']), ['alive']);
+});
+
+test('ipcMain.handle: a second handler, a non-function, handleOnce, removeHandler', async (t) => {
+  const a = await boot(t);
+  const r = await a.client.invoke(7, 'register-twice', []);
+  assert.equal(r.second, "Attempted to register a second handler for 'twice'", 'Electron: /second handler/');
+  assert.deepEqual(r.notFn, ['TypeError', "Expected handler to be a function, but found type 'number'"]);
+  assert.equal(await a.client.invoke(7, 'once-only', []), 'first');
+  await assert.rejects(a.client.invoke(7, 'once-only', []), /No handler registered for 'once-only'/);
+  await assert.rejects(a.client.invoke(7, 'twice', []), /No handler registered for 'twice'/, 'a handler that was removed');
+});
+
+test('a handler that throws: the page is told error.toString(), the core logs it (Electron: "Error invoking remote method")', async (t) => {
+  const a = await boot(t);
+  await assert.rejects(a.client.invoke(7, 'throw-type', []), (e) => e.message === 'bad type' && e.remoteText === 'TypeError: bad type');
+  await assert.rejects(a.client.invoke(7, 'throw-string', []), (e) => e.message === 'just a string' && e.remoteText === 'just a string');
+  await assert.rejects(a.client.invoke(7, 'nope', []), (e) => e.remoteText === "Error: No handler registered for 'nope'");
+  await until(() => a.logs.some((l) => /Error occurred in handler for 'throw-type'/.test(l.message)), 5000, 'the core log');
+  await assert.rejects(a.client.invoke(7, 'result-fn', []), (e) => /could not be cloned/.test(e.remoteText), 'a result that cannot be cloned is an error in the handler');
+});
+
+test('values the structured clone algorithm copies cross in both directions (Electron: payloads, Date, Buffer, cycles)', async (t) => {
+  const a = await boot(t);
+  const r = await a.client.invoke(7, 'typed', []);
+  assert.ok(r[0] instanceof Uint8Array && r[0].length === 3);
+  assert.ok(r[1] instanceof Date && r[1].getTime() === 0);
+  assert.ok(r[2] instanceof Map && r[2].get(1).a === 2);
+  assert.equal(r[3], undefined);
+  assert.equal(r[4], 10n);
+  assert.ok(Number.isNaN(r[5]));
+  assert.ok(Object.is(r[6], -0));
+  assert.ok(r[7] instanceof Set && r[7].has('s'));
+  assert.ok(r[8] instanceof Error && r[8].message === 'inner');
+  const self = await a.client.invoke(7, 'typed-self', []);
+  assert.equal(self.self, self);
+  // the page's values to the core's handler, and back
+  const out = await a.client.invoke(7, 'echo', [new Uint8Array([9, 8]), new Date(5), new Map([['k', new Set([1])]]), undefined, 7n, -0]);
+  assert.deepEqual([...out[0]], [9, 8]);
+  assert.equal(out[1].getTime(), 5);
+  assert.ok(out[2] instanceof Map && out[2].get('k') instanceof Set);
+  assert.equal(out[3], undefined);
+  assert.equal(out[4], 7n);
+  assert.ok(Object.is(out[5], -0));
+  // webContents.send
+  a.emits.length = 0;
+  await a.client.invoke(7, 'send-typed', [new Uint8Array([1]), undefined, 5n]);
+  await until(() => lastEmit(a, 'typed'), 5000, 'the emit');
+  const [u8, und, big] = lastEmit(a, 'typed').args;
+  assert.ok(u8 instanceof Uint8Array && und === undefined && big === 5n, 'decoded on the launcher side of the bridge');
+  // and it is JSON on the wire: a Rust or .NET core can read what it needs, and plain data is untouched
+  const wire = a.logs; // (the raw line is not kept; the codec's own tests pin the wire format)
+  assert.ok(Array.isArray(wire));
+});
+
+test('webContents.send throws, at the call, for a value that cannot be cloned', async (t) => {
+  const a = await boot(t);
+  const [kind, message] = await a.client.invoke(7, 'send-bad', []);
+  assert.equal(kind, 'Error');
+  assert.match(message, /could not be cloned\.$/);
+});
+
+test('a message with a malformed value is dropped and logged; the core stays up', async (t) => {
+  const a = await boot(t);
+  a.client.send({ t: 'send', win: 7, channel: 'ping', args: [{ $vmapp: 'nope' }] });
+  await until(() => a.logs.some((l) => /a message on 'ping' was dropped/.test(l.message)), 5000, 'the log');
   assert.deepEqual(await a.client.invoke(7, 'echo', ['alive']), ['alive']);
 });
 

@@ -228,6 +228,24 @@ test('binary answers are exact (every byte value)', async () => {
   }
 });
 
+test('an answer with NO Content-Type is binary-safe (a picture or a download from a server that omits it)', async () => {
+  const all = Buffer.alloc(256 * 20);
+  for (let i = 0; i < all.length; i++) all[i] = i % 256; // every byte value, including the ones that are not valid UTF-8
+  const t = await setup((req, res) => {
+    res.writeHead(200); // no Content-Type at all
+    res.end(req.url.endsWith('/json') ? '{"ok":true,"name":"café"}' : all);
+  });
+  try {
+    const r = await t.fetch('/api/nothing');
+    assert.equal(r.headers.get('content-type'), null);
+    assert.equal(sha(Buffer.from(await r.arrayBuffer())), sha(all), 'every byte arrives unchanged');
+    const j = await t.fetch('/api/json');
+    assert.deepEqual(await j.json(), { ok: true, name: 'café' }, 'and text without a type still reads as text');
+  } finally {
+    await t.close();
+  }
+});
+
 test('backpressure: a page that stops reading stops the server; resuming delivers every byte', async () => {
   const total = 24 * 1024 * 1024;
   const block = crypto.randomBytes(64 * 1024);

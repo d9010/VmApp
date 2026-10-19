@@ -3,6 +3,23 @@
 What changed in each version of the D9010 VmApp Launcher, newest first. The launcher shows the latest entry on its update card, the
 website's download page links here, and each GitHub release carries the same text.
 
+## [0.1.4] - 2026-10-18
+
+The launcher checks for updates every time you open it, explains itself when it cannot update, and apps now follow Electron's rules for files and messages.
+
+### Changed
+
+- The launcher now looks for a newer version every time it starts, and at least once a day while it stays open, and tells you with the update card.
+- Pictures, fonts, sounds, videos and style sheets that an app's own server provides now load the way they do in an Electron app: the launcher answers the page's requests for them itself, with streaming and `Range` support for audio and video. Apps whose window needed a workaround for this (the icons of the Code - OSS sample, for one) no longer do.
+- Messages between an app's window and its core now carry everything Electron's IPC carries: dates, maps, sets, typed arrays, big integers, errors, `undefined` and shared or cyclic references. A handler that returns nothing now gives `undefined` (it gave `null`).
+- When a handler fails, the window's promise now rejects with Electron's text: `Error invoking remote method '<channel>': <error>`.
+- In an app's core, `ipcMain` is now a real `EventEmitter` (`once`, `eventNames`, `listenerCount`, …), its events carry `reply`, `type`, `processId` and `frameId` as in Electron, and `ipcMain.handle` reports the same errors Electron does. The sample runtimes are rebuilt with it.
+- In an app's window, `window.vmapp.ipcRenderer` now has `once`, `addListener`, `removeAllListeners`, `eventNames` and `listenerCount`. `off`, `removeListener` and `sendSync` exist and explain, in their error, why they cannot work across the window's context bridge.
+
+### Fixed
+
+- A launcher opened straight from Downloads could not update itself and ended with a "read-only volume" error. It now says why (macOS runs it from a temporary read-only copy) and offers **Move to Applications**, which copies it there and opens it from there.
+
 ## [0.1.3] - 2026-10-18
 
 Icons now show in the Code - OSS sample app.

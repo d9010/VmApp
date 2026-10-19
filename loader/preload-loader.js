@@ -86,6 +86,7 @@ if (page === 'library.html') {
       check: () => call('upd:check'),
       install: () => call('upd:install'),
       restart: () => call('upd:restart'),
+      move: () => call('upd:move'),
       skip: () => call('upd:skip'),
       later: () => call('upd:later'),
       dismiss: () => call('upd:dismiss'),

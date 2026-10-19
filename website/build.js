@@ -236,7 +236,7 @@ ${r.changes.map((c) => `  <li>${esc(c)}</li>`).join('\n')}
 <ol class="steps">
   <li><strong>Download the zip.</strong>Use the button above. It is the same file that is attached to the GitHub release.</li>
   <li><strong>Check it (optional).</strong>In the folder with the download, run <code>shasum -a 256 ${esc(r.file)}</code>. The answer must be the SHA-256 shown above.</li>
-  <li><strong>Move it into Applications.</strong>Unzip it, drag <code>D9010VmAppLauncher.app</code> into <code>/Applications</code> and open it. The first time, macOS asks you to confirm that you downloaded it from the internet: choose <em>Open</em>.</li>
+  <li><strong>Move it into Applications.</strong>Unzip it, drag <code>D9010VmAppLauncher.app</code> into <code>/Applications</code> and open it from there (an app opened straight from Downloads cannot update itself). The first time, macOS asks you to confirm that you downloaded it from the internet: choose <em>Open</em>.</li>
   <li><strong>Try an app.</strong>Click <em>Load examples</em>, tick the sample apps you want and choose <em>Install selected</em>. Installing allows nothing: each app asks for what it needs the first time you launch it.</li>
 </ol>
 

@@ -18,6 +18,8 @@
     el.status.textContent = message || '';
     el.status.classList.toggle('error', !!isError);
   }
+  // A handler's error reaches the page as Electron words it: "Error invoking remote method '<channel>': Error: <message>". Show the message.
+  const reason = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
 
   function formatSize(n) {
     if (n < 1024) return `${n} B`;
@@ -99,7 +101,7 @@
       const r = await api.invoke('hasher:choose');
       if (r.canceled) setStatus('No folder chosen.');
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   });
 
@@ -110,7 +112,7 @@
       const r = await api.invoke('hasher:save');
       setStatus(r.canceled ? 'Save canceled.' : `Saved a report with ${r.count} line${r.count === 1 ? '' : 's'}.`);
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   });
 })();

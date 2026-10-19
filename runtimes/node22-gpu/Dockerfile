@@ -75,8 +75,9 @@ COPY --from=probe /gpu-probe /usr/lib/vmapp/gpu-probe
 
 # (No COPY --chmod: BuildKit also applies it to the folders COPY creates, which would make them untraversable.)
 COPY sdk-node/vmapp.js /usr/lib/vmapp/node/node_modules/vmapp/index.js
+COPY sdk-node/ipc-codec.js /usr/lib/vmapp/node/node_modules/vmapp/ipc-codec.js
 RUN chmod 0755 /usr/lib/vmapp /usr/lib/vmapp/node /usr/lib/vmapp/node/node_modules /usr/lib/vmapp/node/node_modules/vmapp \
- && chmod 0644 /usr/lib/vmapp/node/node_modules/vmapp/index.js \
+ && chmod 0644 /usr/lib/vmapp/node/node_modules/vmapp/index.js /usr/lib/vmapp/node/node_modules/vmapp/ipc-codec.js \
  && chmod 0755 /usr/lib/vmapp/gpu-probe \
  && chown -R 0:0 /usr/lib/vmapp
 

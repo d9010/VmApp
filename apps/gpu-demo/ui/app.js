@@ -82,6 +82,9 @@
     return {};
   }
 
+  // A handler's error reaches the page as Electron words it: "Error invoking remote method '<channel>': Error: <message>". Show the message.
+  const reason = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
+
   function logError(message) {
     S.errors.push(String(message));
     if (S.errors.length > 20) S.errors.shift();
@@ -379,7 +382,7 @@
       try {
         await bridge.invoke('scene:set', patch);
       } catch (e) {
-        logError(`scene:set failed: ${e.message}`);
+        logError(`scene:set failed: ${reason(e)}`);
       }
     }, 40);
   }
@@ -495,8 +498,8 @@
     try {
       return await fn();
     } catch (e) {
-      presetMessage(e && e.message ? e.message : String(e), true);
-      logError(e && e.message ? e.message : e);
+      presetMessage(reason(e), true);
+      logError(reason(e));
       return null;
     }
   }
@@ -520,7 +523,7 @@
       S.cpuBench = r;
       el.cpuBenchOut.textContent = `${r.bodies} bodies x ${r.steps} steps in ${r.computeMs.toFixed(0)} ms: ${r.minteractionsPerSec.toFixed(0)} M interactions/s (about ${r.gflops.toFixed(1)} GFLOP/s) on the VM's CPU`;
     } catch (e) {
-      el.cpuBenchOut.textContent = e.message;
+      el.cpuBenchOut.textContent = reason(e);
     } finally {
       el.cpuBench.disabled = false;
     }
@@ -546,8 +549,8 @@
       S.gpuBench = { api: r.api, count, frames, ms, fps, mUpdatesPerSec: (count * frames) / ms / 1000 };
       el.gpuBenchOut.textContent = `${fmtInt(count)} particles: ${frames} frames in ${ms.toFixed(0)} ms = ${fps.toFixed(0)} fps without vsync (${S.gpuBench.mUpdatesPerSec.toFixed(0)} M particle updates/s)`;
     } catch (e) {
-      el.gpuBenchOut.textContent = `benchmark failed: ${e.message}`;
-      logError(`benchmark failed: ${e.message}`);
+      el.gpuBenchOut.textContent = `benchmark failed: ${reason(e)}`;
+      logError(`benchmark failed: ${reason(e)}`);
     } finally {
       S.benchmarking = false;
       el.gpuBench.disabled = false;
@@ -712,8 +715,8 @@
       await measureRtt();
       setInterval(() => measureRtt().catch(() => {}), 4000);
     } catch (e) {
-      logError(`core: ${e.message}`);
-      el.cWhere.textContent = `The core did not answer: ${e.message}`;
+      logError(`core: ${reason(e)}`);
+      el.cWhere.textContent = `The core did not answer: ${reason(e)}`;
     }
   }
 

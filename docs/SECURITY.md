@@ -119,7 +119,7 @@ When you run an app in the D9010 VmApp Launcher:
 
 The launcher can update itself (SPEC §8.10, INV-U1). This is the one place where the launcher fetches code, so it is held to the strictest rules:
 
-- **One fixed address, asked rarely.** The launcher asks `https://vmapp.dev/updates/mac-arm64/latest.json` at start and about once a day. The request
+- **One fixed address, asked rarely.** The launcher asks `https://vmapp.dev/updates/mac-arm64/latest.json` a few seconds after every start and at least once a day while it runs. The request
   carries no identifier, no cookie, no list of your apps and not even the launcher's version; the launcher compares the answer itself. The switch
   `checkForUpdates` in Host Capabilities turns the automatic check off.
 - **Nothing happens without your click.** A card shows the new version and what changed. Downloading starts at **Update now**; the restart waits for

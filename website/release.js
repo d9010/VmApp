@@ -139,7 +139,7 @@ Needs macOS ${release.minimumOS} or later on a Mac with Apple silicon.
 
 1. Download \`${release.file}\` (${mb(release.size)}) from the assets below.
 2. Optional: download \`SHA256SUMS\` into the same folder and run \`shasum -a 256 -c SHA256SUMS\`. It must say \`OK\`.
-3. Unzip it, move \`D9010VmAppLauncher.app\` into \`/Applications\` and open it. The first time, macOS asks you to confirm that you downloaded it from the internet: choose **Open**.
+3. Unzip it, move \`D9010VmAppLauncher.app\` into \`/Applications\` and open it from there (an app opened straight from Downloads cannot update itself). The first time, macOS asks you to confirm that you downloaded it from the internet: choose **Open**.
 4. Click **Load examples**, tick the sample apps you want and choose **Install selected**. Installing allows nothing: each app asks for what it needs the first time you launch it.
 
 Once installed, the launcher tells you when a newer version is available (a card appears with what changed). Nothing is downloaded or restarted without your click, and the check sends nothing about you; you can turn it off in Host Capabilities.

@@ -123,3 +123,74 @@ ipcMain.on('ping', (e, x) => {
 ipcMain.on('throws', () => {
   throw new Error('listener failure');
 });
+
+// ---- Electron's ipcMain / IpcMainEvent contract (tests/electron-conformance/MAPPING.md) ----
+ipcMain.on('test-echo', (e, arg) => {
+  e.reply('test-echo', arg); // spec/api-ipc-main-spec.ts "can be replied to"
+});
+ipcMain.on('event-shape', (e) => {
+  win.webContents.send('shape', {
+    keys: Object.keys(e).sort(),
+    type: e.type,
+    processId: e.processId,
+    frameId: e.frameId,
+    sender: e.sender === win.webContents,
+    reply: typeof e.reply,
+    ports: Array.isArray(e.ports),
+  });
+});
+ipcMain.handle('invoke-shape', (e) => ({ keys: Object.keys(e).sort(), type: e.type, processId: e.processId, frameId: e.frameId, reply: typeof e.reply, ports: typeof e.ports }));
+ipcMain.handle('main-api', () => ({
+  emitter: ipcMain instanceof require('events').EventEmitter,
+  names: ipcMain.eventNames().filter((n) => typeof n === 'string').sort(),
+}));
+ipcMain.handle('register-twice', () => {
+  ipcMain.handle('twice', () => 1);
+  const out = {};
+  try {
+    ipcMain.handle('twice', () => 2);
+  } catch (e) {
+    out.second = e.message;
+  }
+  try {
+    ipcMain.handle('not-a-function', 5);
+  } catch (e) {
+    out.notFn = [e.constructor.name, e.message];
+  }
+  ipcMain.removeHandler('twice');
+  out.afterRemove = ipcMain.listenerCount('twice');
+  return out;
+});
+ipcMain.handleOnce('once-only', () => 'first');
+ipcMain.handle('throw-type', () => {
+  throw new TypeError('bad type');
+});
+ipcMain.handle('throw-string', () => {
+  throw 'just a string'; // eslint-disable-line no-throw-literal
+});
+ipcMain.handle('typed', () => [new Uint8Array([1, 2, 3]), new Date(0), new Map([[1, { a: 2 }]]), undefined, 10n, NaN, -0, new Set(['s']), new Error('inner')]);
+ipcMain.handle('typed-self', () => {
+  const o = { name: 'o' };
+  o.self = o;
+  return o;
+});
+ipcMain.handle('result-fn', () => () => 1);
+ipcMain.handle('send-typed', (e, ...args) => {
+  win.webContents.send('typed', ...args);
+});
+ipcMain.handle('send-bad', () => {
+  try {
+    win.webContents.send('x', { f: () => 1 });
+    return 'sent';
+  } catch (e) {
+    return [e.constructor.name, e.message];
+  }
+});
+ipcMain.on('async-fail', async () => {
+  throw new Error('async listener failure');
+});
+ipcMain.on('seq', (e, x) => (global.__seq = (global.__seq || []).concat(`a${x}`)));
+ipcMain.on('seq', (e, x) => (global.__seq = (global.__seq || []).concat(`b${x}`)));
+ipcMain.handle('seq-seen', () => global.__seq || []);
+ipcMain.once('one-shot', (e, x) => win.webContents.send('pong', `once:${x}`));
+ipcMain.on('error', (e, x) => win.webContents.send('pong', `error-channel:${x}`));

@@ -71,6 +71,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
+const codec = require('./ipc-codec.js'); // structured clone over the bridge's JSON lines (SPEC 6 "Values")
 
 const MAX_LINE = 16 * 1024 * 1024;
 const SOCKET_PATH = process.env.VMAPP_SOCKET;
@@ -81,7 +82,6 @@ let conn = null; // the active host connection
 let nextReqId = 1;
 const pending = new Map(); // request id -> { resolve, reject, sync }
 const invokeHandlers = new Map(); // channel -> fn
-const onListeners = new Map(); // channel -> [fn]
 const windows = new Map(); // host window id -> BrowserWindow
 let initInfo = null; // { app, platform, data }
 let quitPromise = null;
@@ -277,12 +277,13 @@ class BrowserWindow extends EventEmitter {
 
   _sendToRenderer(channel, args) {
     if (this._destroyed) return;
-    JSON.stringify(args); // fail early (synchronously) for non-serialisable arguments
+    // like Electron's webContents.send: a value the structured clone algorithm cannot copy throws here, at the call, "… could not be cloned."
+    const encoded = codec.encode(args);
     if (!this._created) {
-      this._queue.push({ channel: String(channel), args });
+      this._queue.push({ channel: String(channel), args: encoded });
       return;
     }
-    send({ t: 'emit', win: this._id, channel: String(channel), args });
+    send({ t: 'emit', win: this._id, channel: String(channel), args: encoded });
   }
 
   _afterCreate(fn) {
@@ -324,54 +325,54 @@ function logReject(what) {
 
 // ------------------------------------------------------------------------------------------------ ipcMain
 
-function makeEvent(win) {
+/**
+ * The event a listener or handler gets: Electron's IpcMainEvent / IpcMainInvokeEvent (docs/api/structures/ipc-main-event.md). The page is one
+ * frame of one window, so `processId` is the window's id and `frameId` is 1. `sender` is the window's webContents, `senderWindow` is ours.
+ * `returnValue` is not here: it answers a synchronous message, which a page cannot send (it would block on the VM; `invoke` is the replacement).
+ */
+function makeEvent(win, invoke) {
   const w = windows.get(win) || null;
-  return { sender: w ? w.webContents : null, senderWindow: w };
+  const sender = w ? w.webContents : null;
+  const event = { type: 'frame', processId: win, frameId: 1, sender, senderWindow: w, preventDefault() {} };
+  if (!invoke) {
+    event.ports = [];
+    // answers the frame that sent the message (Electron: event.sender.sendToFrame([processId, frameId], channel, ...args))
+    event.reply = (channel, ...args) => {
+      if (sender) sender.send(channel, ...args);
+    };
+  }
+  return event;
 }
 
-const ipcMain = {
+/**
+ * Electron's ipcMain (lib/browser/ipc-main-impl.ts): an EventEmitter whose events are the channels the page sends on (`on`, `once`, `off`,
+ * `removeAllListeners`, `eventNames`, `listenerCount`, …, all from EventEmitter), plus `handle`, `handleOnce` and `removeHandler` for `invoke`.
+ */
+class IpcMain extends EventEmitter {
+  constructor() {
+    super();
+    // a channel named "error" must not throw when nobody listens (Electron does the same)
+    this.on('error', () => {});
+  }
+
   handle(channel, fn) {
-    if (typeof fn !== 'function') throw new TypeError('ipcMain.handle: listener must be a function');
     if (invokeHandlers.has(channel)) throw new Error(`Attempted to register a second handler for '${channel}'`);
+    if (typeof fn !== 'function') throw new TypeError(`Expected handler to be a function, but found type '${typeof fn}'`);
     invokeHandlers.set(channel, fn);
-  },
+  }
+
   handleOnce(channel, fn) {
-    ipcMain.handle(channel, (event, ...args) => {
-      invokeHandlers.delete(channel);
+    this.handle(channel, (event, ...args) => {
+      this.removeHandler(channel);
       return fn(event, ...args);
     });
-  },
+  }
+
   removeHandler(channel) {
     invokeHandlers.delete(channel);
-  },
-  on(channel, fn) {
-    if (typeof fn !== 'function') throw new TypeError('ipcMain.on: listener must be a function');
-    if (!onListeners.has(channel)) onListeners.set(channel, []);
-    onListeners.get(channel).push(fn);
-    return ipcMain;
-  },
-  once(channel, fn) {
-    const wrapper = (event, ...args) => {
-      ipcMain.off(channel, wrapper);
-      return fn(event, ...args);
-    };
-    return ipcMain.on(channel, wrapper);
-  },
-  off(channel, fn) {
-    const l = onListeners.get(channel);
-    if (l) {
-      const i = l.indexOf(fn);
-      if (i >= 0) l.splice(i, 1);
-    }
-    return ipcMain;
-  },
-  removeAllListeners(channel) {
-    if (channel === undefined) onListeners.clear();
-    else onListeners.delete(channel);
-    return ipcMain;
-  },
-};
-ipcMain.removeListener = ipcMain.off;
+  }
+}
+const ipcMain = new IpcMain();
 
 // ------------------------------------------------------------------------------------------------ dialog / shell
 
@@ -639,41 +640,63 @@ function handleInit(msg) {
   send({ t: 'ready' }); // (4) before any window.create the scheduled callbacks will cause
 }
 
+/** The values of a message's `args`, as the page's structured clone made them (the codec's tags undone). */
+function decodeArgs(args) {
+  return Array.isArray(args) ? codec.decode(args) : [];
+}
+
+/**
+ * What the page is told about an error thrown in a handler. Electron sends `error.toString()` and the renderer builds `Error invoking remote
+ * method '<channel>': <that>`; so `text` is that string, and `message` stays for hosts that only know the bare message.
+ */
+function errorInfo(e) {
+  let text;
+  try {
+    text = String(e);
+  } catch {
+    text = errMessage(e);
+  }
+  return { message: errMessage(e), text };
+}
+
 async function handleInvoke(msg) {
   const id = msg.id;
   const fn = invokeHandlers.get(msg.channel);
   let line;
   if (!fn) {
-    line = { t: 'result', id, error: { message: `No handler registered for '${msg.channel}'` } };
+    line = { t: 'result', id, error: errorInfo(new Error(`No handler registered for '${msg.channel}'`)) };
   } else {
     try {
-      const r = await fn(makeEvent(msg.win), ...(Array.isArray(msg.args) ? msg.args : []));
-      line = { t: 'result', id, result: r === undefined ? null : r };
-      const text = JSON.stringify(line); // throws for circular structures / BigInt
+      const r = await fn(makeEvent(msg.win, true), ...decodeArgs(msg.args));
+      line = { t: 'result', id, result: codec.encode(r) }; // throws "… could not be cloned." like Electron's reply would
+      const text = JSON.stringify(line);
       if (Buffer.byteLength(text) > MAX_LINE) throw new Error('result is too large for the bridge (16 MiB limit)');
     } catch (e) {
-      line = { t: 'result', id, error: { message: errMessage(e) } };
+      hostLog('warn', `Error occurred in handler for '${msg.channel}': ${(e && e.stack) || errMessage(e)}`); // Electron: console.error, same text
+      line = { t: 'result', id, error: errorInfo(e) };
     }
   }
   try {
     send(line);
   } catch (e) {
-    send({ t: 'result', id, error: { message: errMessage(e) } });
+    send({ t: 'result', id, error: errorInfo(e) });
   }
 }
 
 function handleSend(msg) {
-  const l = onListeners.get(msg.channel);
-  if (!l) return;
-  const ev = makeEvent(msg.win);
-  for (const fn of l.slice()) {
-    try {
-      const r = fn(ev, ...(Array.isArray(msg.args) ? msg.args : []));
-      if (r && typeof r.catch === 'function') r.catch((e) => hostLog('error', `error in '${msg.channel}' listener: ${errMessage(e)}`));
-    } catch (e) {
-      hostLog('error', `error in '${msg.channel}' listener: ${errMessage(e)}`);
-    }
+  let args;
+  try {
+    args = decodeArgs(msg.args);
+  } catch (e) {
+    return hostLog('error', `a message on '${msg.channel}' was dropped: ${errMessage(e)}`);
   }
+  try {
+    // the channel is the event name, as in Electron; a listener that throws stops the listeners after it (EventEmitter), and is logged
+    ipcMain.emit(msg.channel, makeEvent(msg.win, false), ...args);
+  } catch (e) {
+    hostLog('error', `error in '${msg.channel}' listener: ${errMessage(e)}`);
+  }
+  return undefined;
 }
 
 function handleWindow(msg) {

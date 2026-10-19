@@ -20,6 +20,8 @@
     el.status.textContent = message || '';
     el.status.classList.toggle('error', !!isError);
   }
+  // A handler's error reaches the page as Electron words it: "Error invoking remote method '<channel>': Error: <message>". Show the message.
+  const reason = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
 
   const isDirty = () => current !== null && el.text.value !== saved;
   function refreshDirty() {
@@ -62,7 +64,7 @@
       renderList();
       setStatus(`Opened ${name}`);
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 
@@ -75,7 +77,7 @@
       refreshDirty();
       setStatus(`Saved ${current}`);
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 
@@ -86,7 +88,7 @@
       await openNote(name);
       el.text.focus();
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 
@@ -102,7 +104,7 @@
       showEditor(false);
       refreshDirty();
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 
@@ -112,7 +114,7 @@
       const r = await api.invoke('notes:export', current, el.text.value);
       setStatus(`Exported ${r.file}`);
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 
@@ -124,7 +126,7 @@
       await openNote(r.name);
       setStatus(`Imported ${r.name}`);
     } catch (e) {
-      setStatus(e.message, true);
+      setStatus(reason(e), true);
     }
   }
 

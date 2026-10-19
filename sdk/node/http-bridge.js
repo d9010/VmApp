@@ -175,7 +175,9 @@ function attach(ipcMain, options = {}) {
   function onResponse(entry, res) {
     const type = String(res.headers['content-type'] || '');
     entry.res = res;
-    entry.text = TEXT_TYPE.test(type) || !type;
+    // Only a type that says "text" travels as UTF-8; an answer with no Content-Type, or a type we do not know, is bytes (base64): a picture, a font or a
+    // download from a server that omits the header must arrive exactly (the page reads text from bytes anyway: response.text(), response.json()).
+    entry.text = TEXT_TYPE.test(type);
     entry.decoder = new StringDecoder('utf8');
     const headers = [];
     for (const [k, v] of Object.entries(res.headers)) {

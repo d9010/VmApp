@@ -15,9 +15,9 @@
 //                                                        the same connection on the server in the VM
 //   http://<authority>/vscode-remote-resource?path=…     `resourceUriProvider`: the page's own origin. fetch() goes over the bridge
 //                                                        (vmapp-fetch.js, prefix /vscode-remote-resource); images and fonts of the
-//                                                        built-in extensions come from ui/static/extensions/ (an <img> cannot go over
-//                                                        the bridge); those of installed extensions are fetched over the bridge and
-//                                                        swapped in as data: URLs (installMediaLoader)
+//                                                        built-in extensions come from ui/static/extensions/; those of installed
+//                                                        extensions are answered by the launcher from the server in the VM (CSS,
+//                                                        <img> and fonts load them natively: vmapp-fetch.js data-media)
 //   window.open(url) (links, "Open in browser")          https links: core -> shell.openExternal, the platform asks the user
 //   File > Open Folder… (browses the server's disk)      unchanged, plus "Open Folder from Your Mac…" (a native dialog through the core)
 //   webviews at https://*.vscode-cdn.net                 `webviewEndpoint`: vmapp-frame://<uuid>/… isolated frames with their own
@@ -176,170 +176,10 @@
     return { path: '/vscode-remote-resource', query: 'path=' + encodeURIComponent(fsPath) + '&tkn=' + encodeURIComponent(token) };
   }
 
-  // ------------------------------------------------------------------ pictures and fonts of installed extensions
-  // resourcePath() above sends those to /vscode-remote-resource, which only fetch() can reach (over the bridge): the page's CSS
-  // (`mask: url(…)` of an activity bar icon, `background-image` of a tab icon, `@font-face`) and its <img> elements cannot. The
-  // workbench builds those URLs synchronously, so they are fixed up afterwards: each one is fetched over the bridge and replaced by a
-  // data: URL, which the window's CSP allows for images and fonts (blob: it does not allow for fonts).
-  var MEDIA_URL_IN_CSS = /url\(\s*(["']?)([^"')]*\/vscode-remote-resource\?[^"')]*)\1\s*\)/g;
-  var MEDIA_MIME = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf' };
-  var MEDIA_MAX_BYTES = 2 * 1024 * 1024; // a larger file stays as it is (and does not load)
-
-  /** The extension (lower case) of the file a vscode-remote-resource URL asks for when it is a picture or a font, else ''. */
-  function mediaExt(url) {
-    var path = '';
-    try {
-      path = new URL(url).searchParams.get('path') || '';
-    } catch (e) {
-      return '';
-    }
-    var m = MEDIA.exec(path);
-    return m ? m[1].toLowerCase() : '';
-  }
-
-  /**
-   * `text` (CSS) with each url(…) of a vscode-remote-resource picture replaced by what `lookup(url)` knows: a data: URL, or null when
-   * loading failed (left as it is). `missing` lists the URLs `lookup` has not loaded yet (undefined): nothing is replaced while any is.
-   */
-  function rewriteMediaCss(text, lookup) {
-    var missing = [];
-    var out = text.replace(MEDIA_URL_IN_CSS, function (all, quote, url) {
-      if (!mediaExt(url)) return all;
-      var data = lookup(url);
-      if (data === undefined) {
-        if (missing.indexOf(url) < 0) missing.push(url);
-        return all;
-      }
-      return data === null ? all : 'url("' + data + '")';
-    });
-    return { text: missing.length ? text : out, missing: missing };
-  }
-
-  /** Loads pictures over the bridge once each: `get(url)` is the data: URL, null (failed) or undefined (not loaded yet). */
-  function createMediaLoader(w) {
-    var done = new Map();
-    var pending = new Map();
-    return {
-      get: function (url) {
-        return done.get(url);
-      },
-      load: function (url) {
-        if (pending.has(url)) return pending.get(url);
-        var ext = mediaExt(url);
-        var p = !ext
-          ? Promise.resolve(null)
-          : w
-              .fetch(url)
-              .then(function (r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.arrayBuffer();
-              })
-              .then(function (buf) {
-                return buf.byteLength > MEDIA_MAX_BYTES ? null : 'data:' + MEDIA_MIME[ext] + ';base64,' + bytesToBase64(new Uint8Array(buf));
-              })
-              .catch(function () {
-                return null;
-              })
-              .then(function (data) {
-                done.set(url, data);
-                return data;
-              });
-        pending.set(url, p);
-        return p;
-      },
-    };
-  }
-
-  function installMediaLoader(w) {
-    var d = w.document;
-    var sheetProto = w.CSSStyleSheet && w.CSSStyleSheet.prototype;
-    if (!sheetProto || !w.MutationObserver) return;
-    var media = createMediaLoader(w);
-    var insertRule = sheetProto.insertRule;
-
-    /** `rule` (in `parent`: a style sheet or a grouping rule) with its remote pictures replaced, as soon as they are loaded. */
-    function fixRule(parent, rule) {
-      if (!rule) return;
-      if (rule.cssRules && rule.cssRules.length) {
-        Array.prototype.slice.call(rule.cssRules).forEach(function (child) {
-          fixRule(rule, child);
-        });
-        return;
-      }
-      var text = rule.cssText;
-      if (text.indexOf('vscode-remote-resource') < 0) return;
-      var r = rewriteMediaCss(text, media.get);
-      if (r.missing.length) {
-        Promise.all(r.missing.map(media.load)).then(function () {
-          fixRule(parent, rule);
-        });
-        return;
-      }
-      if (r.text === text) return;
-      var i = Array.prototype.indexOf.call(parent.cssRules, rule);
-      if (i < 0) return; // the workbench removed or replaced it meanwhile
-      parent.deleteRule(i);
-      if (sheetProto.isPrototypeOf(parent)) insertRule.call(parent, r.text, i);
-      else parent.insertRule(r.text, i);
-    }
-
-    function fixSheet(sheet) {
-      var rules;
-      try {
-        rules = sheet && sheet.cssRules;
-      } catch (e) {
-        return; // a sheet of another origin
-      }
-      Array.prototype.slice.call(rules || []).forEach(function (rule) {
-        fixRule(sheet, rule);
-      });
-    }
-
-    function fixImage(img) {
-      var src = img.getAttribute('src') || '';
-      if (src.indexOf('/vscode-remote-resource?') < 0 || !mediaExt(src)) return;
-      media.load(src).then(function (data) {
-        if (data && img.getAttribute('src') === src) img.setAttribute('src', data);
-      });
-    }
-
-    // the workbench inserts most of its icon rules one by one (createCSSRule), at the index it passes
-    sheetProto.insertRule = function (rule, index) {
-      var i = insertRule.apply(this, arguments);
-      if (String(rule).indexOf('vscode-remote-resource') >= 0) fixRule(this, this.cssRules[i]);
-      return i;
-    };
-
-    // … and some by the text of a <style> element (tab icons of webviews, say), and pictures as <img> elements
-    var styleQueued = new WeakSet();
-    function fixStyle(el) {
-      if (styleQueued.has(el)) return;
-      styleQueued.add(el);
-      Promise.resolve().then(function () {
-        styleQueued.delete(el);
-        fixSheet(el.sheet);
-      });
-    }
-    function scan(node) {
-      if (node.nodeType !== 1) return;
-      if (node.tagName === 'STYLE') fixStyle(node);
-      else if (node.tagName === 'IMG') fixImage(node);
-      else if (node.querySelectorAll) {
-        Array.prototype.forEach.call(node.querySelectorAll('style, img[src*="vscode-remote-resource"]'), scan);
-      }
-    }
-    new w.MutationObserver(function (records) {
-      records.forEach(function (rec) {
-        if (rec.type === 'attributes') {
-          if (rec.target.tagName === 'IMG') fixImage(rec.target);
-          return;
-        }
-        var owner = rec.type === 'characterData' ? rec.target.parentNode : rec.target;
-        if (owner && owner.tagName === 'STYLE') fixStyle(owner);
-        Array.prototype.forEach.call(rec.addedNodes || [], scan);
-      });
-    }).observe(d.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['src'] });
-  }
+  // Pictures and fonts of installed extensions (activity bar and tab icons, icon fonts) are asked for at /vscode-remote-resource?path=…
+  // by CSS, <img> and the CSSOM. Nothing is done about them here: vmapp-fetch.js (first in index.html) announces that prefix to the
+  // launcher (data-media), which answers them from the server in the VM like any file the app's server serves, and does the same from
+  // the page when the launcher cannot (SPEC 7, "Files the app's server serves").
 
   // ------------------------------------------------------------------ the page
   function start(w) {
@@ -353,7 +193,6 @@
     var origin = w.location.protocol + '//' + w.location.host;
     w._VSCODE_FILE_ROOT = origin + '/static/out/';
     serveExtensionHostFrames(w); // [step 14] the web worker extension host's frame asks this page for the server's files
-    installMediaLoader(w); // the pictures and fonts of installed extensions (activity bar and tab icons), which CSS and <img> cannot fetch over the bridge
 
     // links leave the page through the core (https only; the platform asks the user). VS Code opens them with window.open(url,
     // '_blank', 'noopener'); everything else window.open could do is refused by the platform anyway.
@@ -746,5 +585,5 @@
 
   // ================================================================== end of browser-only extensions
 
-  return { start: start, createSocketFactory: createSocketFactory, resourcePath: resourcePath, rewriteMediaCss: rewriteMediaCss, createMediaLoader: createMediaLoader, Emitter: Emitter, createNativeMenubar: createNativeMenubar, createTunnelProvider: createTunnelProvider, isWorkbenchHref: isWorkbenchHref, createDownloadCommand: createDownloadCommand, applyWindowLocation: applyWindowLocation };
+  return { start: start, createSocketFactory: createSocketFactory, resourcePath: resourcePath, Emitter: Emitter, createNativeMenubar: createNativeMenubar, createTunnelProvider: createTunnelProvider, isWorkbenchHref: isWorkbenchHref, createDownloadCommand: createDownloadCommand, applyWindowLocation: applyWindowLocation };
 });

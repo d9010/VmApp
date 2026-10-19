@@ -5,6 +5,7 @@
 
 const net = require('net');
 const { EventEmitter } = require('events');
+const codec = require('../sdk/node/ipc-codec.js'); // structured clone over the JSON lines (SPEC 6 "Values")
 
 const MAX_LINE = 16 * 1024 * 1024;
 
@@ -131,11 +132,28 @@ class BridgeClient extends EventEmitter {
           break;
         }
         this._pending.delete(msg.id);
-        if (msg.error) p.reject(new Error((msg.error && msg.error.message) || 'error'));
-        else p.resolve(msg.result === undefined ? null : msg.result);
+        if (msg.error) {
+          const err = new Error((msg.error && msg.error.message) || 'error');
+          // Electron's ipcMain replies with error.toString(); a core that sends it as `text` lets the page build the same message
+          if (msg.error && typeof msg.error.text === 'string') err.remoteText = msg.error.text;
+          p.reject(err);
+        } else {
+          try {
+            p.resolve(msg.result === undefined ? null : codec.decode(msg.result));
+          } catch (e) {
+            p.reject(new Error(`the core's reply could not be read: ${e.message}`));
+          }
+        }
         break;
       }
       case 'emit':
+        try {
+          // the same message object, its args as the core's values (typed arrays, Date, Map, undefined, …), for whoever listens
+          msg.args = Array.isArray(msg.args) ? codec.decode(msg.args) : [];
+        } catch (e) {
+          this.emit('log', { level: 'warn', message: `bridge: an emit on '${msg.channel}' was dropped: ${e.message}` });
+          break;
+        }
         this.emit('emit', msg);
         break;
       case 'log':
@@ -196,7 +214,7 @@ class BridgeClient extends EventEmitter {
       const id = this._nextId++;
       this._pending.set(id, { resolve, reject });
       try {
-        this.send({ t: 'invoke', id, win, channel, args: args || [] });
+        this.send({ t: 'invoke', id, win, channel, args: codec.encode(args || []) });
       } catch (e) {
         this._pending.delete(id);
         reject(e);
@@ -204,7 +222,7 @@ class BridgeClient extends EventEmitter {
     });
   }
   sendToCore(win, channel, args) {
-    return this.send({ t: 'send', win, channel, args: args || [] });
+    return this.send({ t: 'send', win, channel, args: codec.encode(args || []) });
   }
   windowEvent(win, event, data) {
     return this.send({ t: 'window', win, event, data: data || {} });

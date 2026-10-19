@@ -76,14 +76,18 @@ violates('B1: the devtools-opened closer is gone', 'b1-window-prefs', (r) => edi
 violates('B1: a <webview> in the loader UI', 'b1-window-prefs', (r) => write(r, 'loader/ui/library.html', '<html><body><webview src="https://example.com"></webview></body></html>\n'), { match: /webview/ });
 
 // ------------------------------------------------------------------------------------------------ B2
-violates('B2: window.vmapp exposes an extra key', 'b2-preload-api', (r) => edit(r, PRE, '  on,\n  menu:', '  on,\n  readFile: (p) => p,\n  menu:'), { match: /extra keys: readFile/ });
+violates('B2: window.vmapp exposes an extra key', 'b2-preload-api', (r) => edit(r, PRE, '  on,\n  serve,\n  served:', '  on,\n  serve,\n  readFile: (p) => p,\n  served:'), { match: /extra keys: readFile/ });
+violates('B2: serve is the raw ipcRenderer.sendSync (the page could send any message to the main process)', 'b2-preload-api', (r) => edit(r, PRE, '  on,\n  serve,\n  served:', '  on,\n  serve: ipcRenderer.sendSync,\n  served:'), { match: /raw ipcRenderer/ });
+violates('B2: serve is missing', 'b2-preload-api', (r) => edit(r, PRE, '  on,\n  serve,\n  served:', '  on,\n  served:'), { match: /missing keys: serve/ });
 violates('B2: window.vmapp.menu exposes more than set and onClick', 'b2-preload-api', (r) => edit(r, PRE, 'menu: { set: menuSet, onClick: menuOnClick }', 'menu: { set: menuSet, onClick: menuOnClick, run: (c) => c }'), { match: /menu keys must be exactly set, onClick/ });
 violates('B2: window.vmapp is missing a key', 'b2-preload-api', (r) => edit(r, PRE, '  app: { id: info.id, name: info.name, version: info.version },\n', ''), { match: /missing keys: app/ });
-violates('B2: the ipcRenderer alias exposes an extra method', 'b2-preload-api', (r) => edit(r, PRE, '    send,\n    on: (channel', '    send,\n    sendSync: (c) => c,\n    on: (channel'));
+violates('B2: the ipcRenderer alias exposes an extra method', 'b2-preload-api', (r) => edit(r, PRE, '    send,\n    on: (channel', '    send,\n    postMessage: (c) => c,\n    on: (channel'), { match: /ipcRenderer keys must be exactly/ });
+violates('B2: the ipcRenderer alias is missing a method', 'b2-preload-api', (r) => edit(r, PRE, '    eventNames: () => [],\n', ''), { match: /ipcRenderer keys must be exactly/ });
+violates('B2: a method of the ipcRenderer alias is the raw ipcRenderer.removeListener', 'b2-preload-api', (r) => edit(r, PRE, /    removeListener: \(\) => \{[^}]*\},\n/s, '    removeListener: ipcRenderer.removeListener,\n'), { match: /raw ipcRenderer/ });
 violates('B2: a second exposeInMainWorld', 'b2-preload-api', (r) => edit(r, PRE, "contextBridge.exposeInMainWorld('vmapp', {", "contextBridge.exposeInMainWorld('other', { x: 1 });\ncontextBridge.exposeInMainWorld('vmapp', {"), { match: /exactly once/ });
 violates('B2: the world is not named vmapp', 'b2-preload-api', (r) => edit(r, PRE, "exposeInMainWorld('vmapp'", "exposeInMainWorld('api'"));
 violates('B2: the raw ipcRenderer is exposed', 'b2-preload-api', (r) => edit(r, PRE, /ipcRenderer: \{[^}]*\},\n/s, 'ipcRenderer: ipcRenderer,\n'), { match: /ipcRenderer/ });
-violates('B2: invoke is the raw ipcRenderer.invoke', 'b2-preload-api', (r) => edit(r, PRE, '  invoke,\n  send,\n  on,\n  menu', '  invoke: ipcRenderer.invoke,\n  send,\n  on,\n  menu'), { match: /raw ipcRenderer/ });
+violates('B2: invoke is the raw ipcRenderer.invoke', 'b2-preload-api', (r) => edit(r, PRE, '  invoke,\n  send,\n  on,\n  serve', '  invoke: ipcRenderer.invoke,\n  send,\n  on,\n  serve'), { match: /raw ipcRenderer/ });
 violates('B2: webFrame in the preload', 'b2-preload-api', (r) => edit(r, PRE, "const { contextBridge, ipcRenderer } = require('electron');", "const { contextBridge, ipcRenderer, webFrame } = require('electron');\nwebFrame.executeJavaScript('1');"));
 violates('B2: an app channel routed by a renderer-supplied id', 'b2-preload-api', (r) =>
   edit(r, MAIN, "ipcMain.handle('vmapp:invoke', async (event, channel, args) => {\n  const rec = appRecord(event);", "ipcMain.handle('vmapp:invoke', async (event, channel, args) => {\n  const rec = registry.get(args.webContentsId);"), { match: /sender/ });

@@ -1,0 +1,5 @@
+/* the app's own package: files here are loaded the normal way and must be left exactly as they are */
+body { font: 14px system-ui, sans-serif; margin: 8px; }
+.box { width: 120px; height: 40px; margin: 4px; display: inline-block; border: 1px solid #999; font-size: 11px; }
+.local-bg { background-image: url(local.svg); }
+img { vertical-align: top; margin: 2px; }

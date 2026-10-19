@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "dev.vmapp.mediaprobe",
+  "name": "Media Probe",
+  "version": "1.0.0",
+  "publisher": "D9010 VmApp tests",
+  "description": "A test app (tests/apps/media-probe-ui.mjs): a server in the VM serves pictures, fonts, sounds and style sheets, and the page shows them every way a page can. It checks that files served by the app's own server are shown without the app doing anything (sdk/web/vmapp-fetch.js).",
+  "runtime": "node22",
+  "core": {
+    "command": ["node", "main.js"],
+    "workdir": "/app",
+    "memoryMiB": 256,
+    "cpus": 1
+  },
+  "ui": { "root": "ui" },
+  "permissions": {
+    "folders": [],
+    "dialogs": false,
+    "external": false
+  }
+}
